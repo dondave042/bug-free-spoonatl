@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Analytics } from '@vercel/analytics/react';
 import { AppProvider, useStore } from './lib/store';
 import Home from './pages/Home';
 import Destinations from './pages/Destinations';
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <Analytics />
       </AppProvider>
     </BrowserRouter>
   );
