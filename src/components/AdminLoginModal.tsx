@@ -19,24 +19,22 @@ export function AdminLoginModal({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    window.setTimeout(() => {
-      const err = signIn(email, password);
-      setBusy(false);
-      if (err) {
-        setError(err);
-        return;
-      }
-      if (email.trim().toLowerCase() !== ADMIN_EMAIL) {
-        setError("This account does not have admin privileges.");
-        return;
-      }
-      onClose();
-      notify("Welcome back, admin");
-      nav("/admin/dashboard");
-    }, 500);
+    const err = await signIn(email, password);
+    setBusy(false);
+    if (err) {
+      setError(err);
+      return;
+    }
+    if (email.trim().toLowerCase() !== ADMIN_EMAIL) {
+      setError("This account does not have admin privileges.");
+      return;
+    }
+    onClose();
+    notify("Welcome back, admin");
+    nav("/admin/dashboard");
   };
 
   return (

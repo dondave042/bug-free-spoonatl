@@ -71,36 +71,34 @@ export function BookingModal({
     return e.length === 0;
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (!item || !user) return;
     if (!validate()) {
       setStep(1);
       return;
     }
     setBusy(true);
-    window.setTimeout(() => {
-      try {
-        const b = createBooking({
-          itemType,
-          itemId: item.id,
-          itemName: item.name,
-          unitPrice: item.price,
-          passengers,
-          total,
-          paymentMethod: method,
-          traveler,
-        });
-        setBusy(false);
-        if (b) setDoneId(b.id);
-        else notify("Could not create booking", "error");
-      } catch (err) {
-        setBusy(false);
-        notify(
-          `Booking error: ${err instanceof Error ? err.message : "Unknown"}`,
-          "error",
-        );
-      }
-    }, 400);
+    try {
+      const b = await createBooking({
+        itemType,
+        itemId: item.id,
+        itemName: item.name,
+        unitPrice: item.price,
+        passengers,
+        total,
+        paymentMethod: method,
+        traveler,
+      });
+      if (b) setDoneId(b.id);
+      else notify("Could not create booking", "error");
+    } catch (err) {
+      notify(
+        `Booking error: ${err instanceof Error ? err.message : "Unknown"}`,
+        "error",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   if (!open || !item) return null;
