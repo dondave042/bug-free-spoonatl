@@ -14,12 +14,12 @@ export function Login() {
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setInfo("");
     if (mode === "in") {
-      const err = signIn(form.email, form.password);
+      const err = await signIn(form.email, form.password);
       if (err) {
         setError(err);
         return;
@@ -27,12 +27,12 @@ export function Login() {
       notify("Welcome back");
       nav("/user/dashboard");
     } else {
-      const err = signUp(form.name, form.email, form.password);
+      const err = await signUp(form.name, form.email, form.password);
       if (err) {
         setError(err);
         return;
       }
-      setInfo("Account created — sign in to continue.");
+      setInfo("Account created. Check your email to confirm your account, then sign in.");
       setMode("in");
     }
   };

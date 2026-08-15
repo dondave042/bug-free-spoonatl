@@ -34,6 +34,7 @@ import type {
   User,
 } from "./types";
 import { bookingId, money, requestId, rid } from "./utils";
+import { supabase } from "./supabase";
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -62,8 +63,8 @@ function normalizeBookings(raw: unknown): Booking[] {
 interface Store {
   user: User | null;
   isAdmin: boolean;
-  signIn: (email: string, password: string) => string | null;
-  signUp: (name: string, email: string, password: string) => string | null;
+  signIn: (email: string, password: string) => Promise<string | null>;
+  signUp: (name: string, email: string, password: string) => Promise<string | null>;
   googleDemoSignIn: () => void;
   signOut: () => void;
   updateProfile: (name: string, phone: string) => void;
@@ -87,7 +88,7 @@ interface Store {
     total: number;
     paymentMethod: PaymentMethodId;
     traveler: TravelerDetails;
-  }) => Booking | null;
+  }) => Promise<Booking | null>;
   approveBooking: (id: string, instructions: string) => void;
   rejectBooking: (id: string, note?: string) => void;
   threads: ChatThread[];
@@ -171,6 +172,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastSeq = useRef(0);
 
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    void supabase.auth.getUser().then(({ data }) => {
+      if (active && data.user?.email) setSession(data.user.email);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, authSession) => {
+      if (authSession?.user?.email) setSession(authSession.user.email);
+      else setSession("");
+    });
+    return () => { active = false; listener.subscription.unsubscribe(); };
+  }, []);
+
   useEffect(() => save(K.users, users), [users]);
   useEffect(() => save(K.session, session), [session]);
   useEffect(() => save(K.destinations, destinations), [destinations]);
@@ -193,41 +207,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const isAdmin = user?.email === ADMIN_EMAIL;
 
-  const signIn = useCallback(
-    (email: string, password: string) => {
-      const found = users.find(
-        (u) =>
-          u.email.toLowerCase() === email.trim().toLowerCase() &&
-          u.password === password,
-      );
-      if (!found) return "Invalid email or password";
-      setSession(found.email);
-      return null;
-    },
-    [users],
-  );
+  useEffect(() => {
+    if (!supabase || !user) return;
+    void supabase.from("bookings").select("id, user_id, destination, travelers, status, notes, created_at").order("created_at", { ascending: false }).then(({ data }) => {
+      if (!data) return;
+      const remote = data.flatMap((row) => {
+        try { return [JSON.parse(row.notes ?? "{}")] as Booking[]; } catch { return []; }
+      });
+      setBookings((local) => normalizeBookings([...remote, ...local.filter((item) => !remote.some((remoteItem) => remoteItem.id === item.id))]));
+    });
+  }, [user, isAdmin]);
 
-  const signUp = useCallback(
-    (name: string, email: string, password: string) => {
-      const ae = email.trim().toLowerCase();
-      if (users.some((u) => u.email.toLowerCase() === ae))
-        return "This email is already registered. Please sign in instead.";
-      if (password.length < 6)
-        return "Password is too weak. Please use a stronger password.";
-      const nu: User = {
-        name: name.trim(),
-        email: ae,
-        password,
-        phone: "",
-        createdAt: Date.now(),
-      };
-      setUsers((u) => [...u, nu]);
-      return null;
-    },
-    [users],
-  );
+  const signIn = useCallback(async (email: string, password: string) => {
+    if (!supabase) return "Supabase is not configured";
+    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+    if (error || !data.user) return "Invalid email or password";
+    setSession(data.user.email ?? email.trim().toLowerCase());
+    return null;
+  }, []);
 
-  const signOut = useCallback(() => setSession(""), []);
+  const signUp = useCallback(async (name: string, email: string, password: string) => {
+    if (password.length < 6) return "Password is too weak. Please use a stronger password.";
+    if (!supabase) return "Supabase is not configured";
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password,
+      options: {
+        data: { full_name: name.trim() },
+        emailRedirectTo: `${window.location.origin}/login`,
+      },
+    });
+    if (error) {
+      if (error.message.toLowerCase().includes("already") || error.message.toLowerCase().includes("registered")) return "This email is already registered. Please sign in instead.";
+      return error.message;
+    }
+    if (data.session?.user?.email) setSession(data.session.user.email);
+    return null;
+  }, []);
+
+  const signOut = useCallback(() => {
+    void supabase?.auth.signOut();
+    setSession("");
+  }, []);
 
   const googleDemoSignIn = useCallback(() => {
     const email = "google.traveler@gmail.com";
@@ -312,7 +333,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const createBooking = useCallback(
-    (input: {
+    async (input: {
       itemType: ItemType;
       itemId: number;
       itemName: string;
@@ -322,24 +343,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       paymentMethod: PaymentMethodId;
       traveler: TravelerDetails;
     }) => {
-      if (!user) return null;
-      const b: Booking = {
-        ...input,
-        id: bookingId(),
-        createdAt: Date.now(),
-        userEmail: user.email,
-        bookedBy: user.name,
-        status: "pending",
-        paymentInstructions: "",
-      };
-      setBookings((list) => [b, ...list]);
-      return b;
+      if (!user || !supabase) return null;
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData.user) return null;
+      const booking = { ...input, id: bookingId(), createdAt: Date.now(), userEmail: user.email, bookedBy: user.name, status: "pending" as const, paymentInstructions: "" };
+      const { error } = await supabase.from("bookings").insert({
+        id: booking.id,
+        user_id: authData.user.id,
+        destination: input.itemName,
+        travel_date: new Date().toISOString().slice(0, 10),
+        travelers: input.passengers,
+        notes: JSON.stringify(booking),
+      });
+      if (error) { notify("Could not create booking", "error"); return null; }
+      setBookings((list) => [booking, ...list]);
+      return booking;
     },
-    [user],
+    [user, notify],
   );
 
   const approveBooking = useCallback(
     (id: string, instructions: string) => {
+      const db = supabase;
+      if (db) void db.from("bookings").select("notes").eq("id", id).maybeSingle().then(({ data }) => {
+        if (!data) return;
+        try { const current = JSON.parse(data.notes ?? "{}"); void db.from("bookings").update({ status: "approved", notes: JSON.stringify({ ...current, status: "approved", paymentInstructions: instructions }) }).eq("id", id); } catch { /* preserve local fallback */ }
+      });
       setBookings((list) =>
         list.map((b) =>
           b.id === id
@@ -387,6 +416,11 @@ Reply here once payment is sent and we will confirm your reservation.`,
 
   const rejectBooking = useCallback(
     (id: string, note?: string) => {
+      const db = supabase;
+      if (db) void db.from("bookings").select("notes").eq("id", id).maybeSingle().then(({ data }) => {
+        if (!data) return;
+        try { const current = JSON.parse(data.notes ?? "{}"); void db.from("bookings").update({ status: "rejected", notes: JSON.stringify({ ...current, status: "rejected", paymentInstructions: note || "Booking rejected by admin" }) }).eq("id", id); } catch { /* preserve local fallback */ }
+      });
       setBookings((list) =>
         list.map((b) =>
           b.id === id
