@@ -71,17 +71,17 @@ export function Footer() {
               Follow Us
             </h4>
             <div className="flex gap-3">
-              {SOCIALS.map((s) => (
+              {SOCIALS.map(({ id, href, label, Icon }) => (
                 <a
-                  key={s.id}
-                  href={s.href}
+                  key={id}
+                  href={href}
                   target="_blank"
                   rel="noreferrer"
-                  aria-label={s.label}
-                  title={s.label}
+                  aria-label={label}
+                  title={label}
                   className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 transition hover:bg-accent"
                 >
-                  <s.Icon className="h-4.5 w-4.5" />
+                  <Icon className="h-4.5 w-4.5" />
                 </a>
               ))}
             </div>
