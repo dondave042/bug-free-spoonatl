@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Facebook, Heart, Instagram, Lock, Twitter } from 'lucide-react';
+import { Facebook, Heart, Instagram, Lock, Music2, Twitter } from 'lucide-react';
 import AdminLoginModal from './AdminLoginModal';
 
 export default function Footer() {
@@ -45,6 +45,9 @@ export default function Footer() {
               </a>
               <a href="https://www.twitter.com" target="_blank" rel="noreferrer" aria-label="Twitter" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 transition hover:bg-accent">
                 <Twitter className="h-4.5 w-4.5" />
+              </a>
+              <a href="https://www.tiktok.com" target="_blank" rel="noreferrer" aria-label="TikTok" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 transition hover:bg-accent">
+                <Music2 className="h-4.5 w-4.5" />
               </a>
             </div>
           </div>
