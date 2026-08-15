@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Facebook, Heart, Instagram, Lock, Twitter } from 'lucide-react';
-import AdminLoginModal from './AdminLoginModal';
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { Heart, Lock } from "lucide-react";
+import { SOCIALS } from "./socials";
+import { AdminLoginModal } from "./AdminLoginModal";
 
-export default function Footer() {
+export function Footer() {
   const [adminOpen, setAdminOpen] = useState(false);
   const year = new Date().getFullYear();
 
@@ -25,35 +26,74 @@ export default function Footer() {
             </p>
           </div>
           <div>
-            <h4 className="mb-4 text-sm font-bold tracking-wider uppercase">Quick Links</h4>
+            <h4 className="mb-4 text-sm font-bold tracking-wider uppercase">
+              Quick Links
+            </h4>
             <ul className="space-y-2.5 text-sm">
-              <li><Link to="/destinations" className="text-white/70 transition hover:text-accent">Destinations</Link></li>
-              <li><Link to="/bookings" className="text-white/70 transition hover:text-accent">Bookings</Link></li>
-              <li><Link to="/gallery" className="text-white/70 transition hover:text-accent">Gallery</Link></li>
-              <li><Link to="/" className="text-white/70 transition hover:text-accent">Privacy Policy</Link></li>
-              <li><Link to="/" className="text-white/70 transition hover:text-accent">Terms of Service</Link></li>
+              <li>
+                <Link
+                  to="/destinations"
+                  className="text-white/70 transition hover:text-accent"
+                >
+                  Destinations
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/bookings"
+                  className="text-white/70 transition hover:text-accent"
+                >
+                  Bookings
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/gallery"
+                  className="text-white/70 transition hover:text-accent"
+                >
+                  Gallery
+                </Link>
+              </li>
+              <li>
+                <Link to="/" className="text-white/70 transition hover:text-accent">
+                  Privacy Policy
+                </Link>
+              </li>
+              <li>
+                <Link to="/" className="text-white/70 transition hover:text-accent">
+                  Terms of Service
+                </Link>
+              </li>
             </ul>
           </div>
           <div>
-            <h4 className="mb-4 text-sm font-bold tracking-wider uppercase">Follow Us</h4>
+            <h4 className="mb-4 text-sm font-bold tracking-wider uppercase">
+              Follow Us
+            </h4>
             <div className="flex gap-3">
-              <a href="https://www.instagram.com" target="_blank" rel="noreferrer" aria-label="Instagram" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 transition hover:bg-accent">
-                <Instagram className="h-4.5 w-4.5" />
-              </a>
-              <a href="https://www.facebook.com" target="_blank" rel="noreferrer" aria-label="Facebook" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 transition hover:bg-accent">
-                <Facebook className="h-4.5 w-4.5" />
-              </a>
-              <a href="https://www.twitter.com" target="_blank" rel="noreferrer" aria-label="Twitter" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 transition hover:bg-accent">
-                <Twitter className="h-4.5 w-4.5" />
-              </a>
+              {SOCIALS.map((s) => (
+                <a
+                  key={s.id}
+                  href={s.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={s.label}
+                  title={s.label}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 transition hover:bg-accent"
+                >
+                  <s.Icon className="h-4.5 w-4.5" />
+                </a>
+              ))}
             </div>
           </div>
         </div>
-
         <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-8 sm:flex-row">
-          <p className="text-xs text-white/60">© {year} ATL TRAVELS. All rights reserved.</p>
+          <p className="text-xs text-white/60">
+            © {year} ATL TRAVELS. All rights reserved.
+          </p>
           <p className="flex items-center gap-1.5 text-xs text-white/60">
-            Made with <Heart className="h-4 w-4 fill-accent text-accent" /> for luxury travelers
+            Made with <Heart className="h-4 w-4 fill-accent text-accent" /> for
+            luxury travelers
           </p>
           <button
             type="button"

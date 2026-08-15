@@ -1,17 +1,16 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
-import { AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { Analytics } from '@vercel/analytics/react';
-import { AppProvider, useStore } from './lib/store';
-import Home from './pages/Home';
-import Destinations from './pages/Destinations';
-import Bookings from './pages/Bookings';
-import Gallery from './pages/Gallery';
-import Login from './pages/Login';
-import Profile from './pages/Profile';
-import Chat from './pages/Chat';
-import UserDashboard from './pages/UserDashboard';
-import AdminDashboard from './pages/AdminDashboard';
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { AppProvider, useStore } from "./lib/store";
+import { Home } from "./pages/Home";
+import { Destinations } from "./pages/Destinations";
+import { Bookings } from "./pages/Bookings";
+import { Gallery } from "./pages/Gallery";
+import { Login } from "./pages/Login";
+import { Profile } from "./pages/Profile";
+import { Chat } from "./pages/Chat";
+import { UserDashboard } from "./pages/UserDashboard";
+import { AdminDashboard } from "./pages/AdminDashboard";
 
 function Toasts() {
   const { toasts } = useStore();
@@ -25,11 +24,11 @@ function Toasts() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.96 }}
             className={`pointer-events-auto flex items-center gap-2.5 rounded-xl px-4 py-3 text-sm font-bold text-white shadow-xl ${
-              t.kind === 'error' ? 'bg-red-600' : 'bg-primary'
+              t.kind === "error" ? "bg-red-600" : "bg-primary"
             }`}
           >
-            {t.kind === 'error' ? (
-              <AlertTriangle className="h-4 w-4 shrink-0" />
+            {t.kind === "error" ? (
+              <AlertCircle className="h-4 w-4 shrink-0" />
             ) : (
               <CheckCircle2 className="h-4 w-4 shrink-0 text-accent" />
             )}
@@ -58,7 +57,6 @@ export default function App() {
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-        <Analytics />
       </AppProvider>
     </BrowserRouter>
   );
