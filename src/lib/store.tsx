@@ -6,81 +6,67 @@ import {
   useMemo,
   useRef,
   useState,
-} from 'react';
-import type { ReactNode } from 'react';
-import type {
-  Booking,
-  BookingStatus,
-  ChatThread,
-  Destination,
-  Flight,
-  MediaItem,
-  PaymentMethodId,
-  ToastMsg,
-  TravelerDetails,
-  UserAccount,
-} from './types';
+  type ReactNode,
+} from "react";
 import {
   ADMIN_EMAIL,
-  PAYMENT_METHOD_IDS,
-  SEED_ADMIN,
+  ADMIN_USER,
+  PAYMENT_IDS,
   SEED_DESTINATIONS,
   SEED_FLIGHTS,
   SEED_MEDIA,
-  fmt,
-  methodMeta,
-} from './data';
-
-const K = {
-  users: 'atl.users.v1',
-  session: 'atl.session.v1',
-  bookings: 'atl.bookings.v1',
-  destinations: 'atl.destinations.v1',
-  flights: 'atl.flights.v1',
-  media: 'atl.media.v1',
-  threads: 'atl.threads.v1',
-};
+  STORAGE_KEYS as K,
+  getPaymentMethod,
+} from "./data";
+import type {
+  Booking,
+  BookableItem,
+  ChatFrom,
+  ChatThread,
+  Destination,
+  Flight,
+  ItemType,
+  MediaItem,
+  PaymentMethodId,
+  Toast,
+  TravelerDetails,
+  TripRequest,
+  User,
+} from "./types";
+import { bookingId, money, requestId, rid } from "./utils";
 
 function load<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw) as T;
+    return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
   }
 }
 
-function persist(key: string, value: unknown) {
+function save(key: string, value: unknown) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    /* quota exceeded — ignore in standalone mode */
+    /* quota */
   }
 }
 
-const uid = () => Math.random().toString(36).slice(2, 10);
-const newBookingId = () => 'ATL-' + Math.floor(1000 + Math.random() * 9000);
-
-/** Ensure stored data never references a payment method that no longer exists. */
-function sanitizeBookings(bookings: Booking[]): Booking[] {
-  if (!Array.isArray(bookings)) return [];
-  return bookings.map((b) =>
-    (PAYMENT_METHOD_IDS as string[]).includes(b.paymentMethod)
-      ? b
-      : { ...b, paymentMethod: 'zelle' as const },
+function normalizeBookings(raw: unknown): Booking[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((b: Booking) =>
+    PAYMENT_IDS.includes(b.paymentMethod) ? b : { ...b, paymentMethod: "zelle" },
   );
 }
 
-interface StoreCtx {
-  user: UserAccount | null;
+interface Store {
+  user: User | null;
   isAdmin: boolean;
   signIn: (email: string, password: string) => string | null;
   signUp: (name: string, email: string, password: string) => string | null;
   googleDemoSignIn: () => void;
   signOut: () => void;
   updateProfile: (name: string, phone: string) => void;
-
   destinations: Destination[];
   flights: Flight[];
   media: MediaItem[];
@@ -90,132 +76,197 @@ interface StoreCtx {
   deleteFlight: (id: number) => void;
   addMedia: (items: MediaItem[]) => void;
   deleteMedia: (id: string) => void;
-
   bookings: Booking[];
   myBookings: Booking[];
-  createBooking: (
-    input: Omit<Booking, 'id' | 'createdAt' | 'userEmail' | 'bookedBy' | 'status' | 'paymentInstructions'>,
-  ) => Booking | null;
+  createBooking: (input: {
+    itemType: ItemType;
+    itemId: number;
+    itemName: string;
+    unitPrice: number;
+    passengers: number;
+    total: number;
+    paymentMethod: PaymentMethodId;
+    traveler: TravelerDetails;
+  }) => Booking | null;
   approveBooking: (id: string, instructions: string) => void;
-  rejectBooking: (id: string, note: string) => void;
-
+  rejectBooking: (id: string, note?: string) => void;
   threads: ChatThread[];
-  sendMessage: (threadId: string, from: 'user' | 'admin', text: string) => void;
-
-  toasts: ToastMsg[];
-  notify: (msg: string, kind?: 'ok' | 'error') => void;
+  chatMedia: Record<string, string>;
+  sendMessage: (
+    threadId: string,
+    from: ChatFrom,
+    text: string,
+    imageDataUrl?: string,
+  ) => void;
+  tripRequests: TripRequest[];
+  myTripRequests: TripRequest[];
+  createTripRequest: (input: {
+    destination: string;
+    fromCity: string;
+    travelers: number;
+    checkIn: string;
+    checkOut: string;
+    budget: string;
+    notes: string;
+  }) => TripRequest | null;
+  quoteTripRequest: (id: string, quote: number, note: string) => void;
+  declineTripRequest: (id: string, note?: string) => void;
+  toasts: Toast[];
+  notify: (msg: string, kind?: Toast["kind"]) => void;
   resetAll: () => void;
 }
 
-const Ctx = createContext<StoreCtx | null>(null);
+const Ctx = createContext<Store | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [users, setUsers] = useState<UserAccount[]>(() => {
-    const stored = load<UserAccount[]>(K.users, []);
-    // make sure the admin account always exists with current credentials
-    const hasAdmin = stored.some((u) => u.email === SEED_ADMIN.email);
-    const list = hasAdmin ? stored : [SEED_ADMIN, ...stored];
-    return list.map((u) =>
-      u.email === SEED_ADMIN.email ? { ...u, password: SEED_ADMIN.password } : u,
+  const [users, setUsers] = useState<User[]>(() => {
+    const list = load<User[]>(K.users, []);
+    const withAdmin = list.some((u) => u.email === ADMIN_USER.email)
+      ? list
+      : [ADMIN_USER, ...list];
+    return withAdmin.map((u) =>
+      u.email === ADMIN_USER.email ? { ...u, password: ADMIN_USER.password } : u,
     );
   });
-  const [sessionEmail, setSessionEmail] = useState<string>(() => load(K.session, ''));
-  const [destinations, setDestinations] = useState<Destination[]>(() =>
+  const [session, setSession] = useState(() => load<string>(K.session, ""));
+  const [destinations, setDestinations] = useState(() =>
     load(K.destinations, SEED_DESTINATIONS),
   );
-  const [flights, setFlights] = useState<Flight[]>(() => load(K.flights, SEED_FLIGHTS));
-  const [media, setMedia] = useState<MediaItem[]>(() => load(K.media, SEED_MEDIA));
-  const [bookings, setBookings] = useState<Booking[]>(() =>
-    sanitizeBookings(load(K.bookings, [])),
+  const [flights, setFlights] = useState(() => load(K.flights, SEED_FLIGHTS));
+  const [media, setMedia] = useState(() => load(K.media, SEED_MEDIA));
+  const [bookings, setBookings] = useState(() =>
+    normalizeBookings(load(K.bookings, [])),
   );
-  const [threads, setThreads] = useState<ChatThread[]>(() => load(K.threads, []));
-  const [toasts, setToasts] = useState<ToastMsg[]>([]);
-  const toastId = useRef(0);
+  const [threads, setThreads] = useState<ChatThread[]>(() => {
+    const list = load<ChatThread[]>(K.threads, []);
+    let migrated = false;
+    const mediaMap = load<Record<string, string>>(K.chatMedia, {});
+    const next = list.map((t) => ({
+      ...t,
+      messages: t.messages.map((m) => {
+        const img = (m as ChatThread["messages"][number] & { image?: string })
+          .image;
+        if (img && !m.imageId) {
+          const id = rid();
+          mediaMap[id] = img;
+          migrated = true;
+          const { image: _drop, ...rest } = m as typeof m & { image?: string };
+          void _drop;
+          return { ...rest, imageId: id };
+        }
+        return m;
+      }),
+    }));
+    if (migrated) save(K.chatMedia, mediaMap);
+    return next;
+  });
+  const [requests, setRequests] = useState<TripRequest[]>(() =>
+    load<TripRequest[]>(K.requests, []).filter((r) =>
+      ["pending", "approved", "rejected"].includes(r.status),
+    ),
+  );
+  const [chatMedia, setChatMedia] = useState<Record<string, string>>(() =>
+    load(K.chatMedia, {}),
+  );
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastSeq = useRef(0);
 
-  useEffect(() => persist(K.users, users), [users]);
-  useEffect(() => persist(K.session, sessionEmail), [sessionEmail]);
-  useEffect(() => persist(K.destinations, destinations), [destinations]);
-  useEffect(() => persist(K.flights, flights), [flights]);
-  useEffect(() => persist(K.media, media), [media]);
-  useEffect(() => persist(K.bookings, bookings), [bookings]);
-  useEffect(() => persist(K.threads, threads), [threads]);
+  useEffect(() => save(K.users, users), [users]);
+  useEffect(() => save(K.session, session), [session]);
+  useEffect(() => save(K.destinations, destinations), [destinations]);
+  useEffect(() => save(K.flights, flights), [flights]);
+  useEffect(() => save(K.media, media), [media]);
+  useEffect(() => save(K.bookings, bookings), [bookings]);
+  useEffect(() => save(K.threads, threads), [threads]);
+  useEffect(() => save(K.requests, requests), [requests]);
+  useEffect(() => save(K.chatMedia, chatMedia), [chatMedia]);
 
-  const notify = useCallback((msg: string, kind: 'ok' | 'error' = 'ok') => {
-    const id = ++toastId.current;
+  const notify = useCallback((msg: string, kind: Toast["kind"] = "ok") => {
+    const id = ++toastSeq.current;
     setToasts((t) => [...t, { id, msg, kind }]);
     window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
   }, []);
 
   const user = useMemo(
-    () => users.find((u) => u.email === sessionEmail) ?? null,
-    [users, sessionEmail],
+    () => users.find((u) => u.email === session) ?? null,
+    [users, session],
   );
   const isAdmin = user?.email === ADMIN_EMAIL;
 
   const signIn = useCallback(
-    (email: string, password: string): string | null => {
-      const match = users.find(
-        (u) => u.email.toLowerCase() === email.trim().toLowerCase() && u.password === password,
+    (email: string, password: string) => {
+      const found = users.find(
+        (u) =>
+          u.email.toLowerCase() === email.trim().toLowerCase() &&
+          u.password === password,
       );
-      if (!match) return 'Invalid email or password';
-      setSessionEmail(match.email);
+      if (!found) return "Invalid email or password";
+      setSession(found.email);
       return null;
     },
     [users],
   );
 
   const signUp = useCallback(
-    (name: string, email: string, password: string): string | null => {
-      const clean = email.trim().toLowerCase();
-      if (users.some((u) => u.email.toLowerCase() === clean))
-        return 'This email is already registered. Please sign in instead.';
-      if (password.length < 6) return 'Password is too weak. Please use a stronger password.';
-      const account: UserAccount = {
+    (name: string, email: string, password: string) => {
+      const ae = email.trim().toLowerCase();
+      if (users.some((u) => u.email.toLowerCase() === ae))
+        return "This email is already registered. Please sign in instead.";
+      if (password.length < 6)
+        return "Password is too weak. Please use a stronger password.";
+      const nu: User = {
         name: name.trim(),
-        email: clean,
+        email: ae,
         password,
-        phone: '',
+        phone: "",
         createdAt: Date.now(),
       };
-      setUsers((u) => [...u, account]);
+      setUsers((u) => [...u, nu]);
       return null;
     },
     [users],
   );
 
-  const signOut = useCallback(() => setSessionEmail(''), []);
+  const signOut = useCallback(() => setSession(""), []);
 
-  /** Stands in for Google OAuth in this standalone copy (no OAuth backend wired). */
   const googleDemoSignIn = useCallback(() => {
-    const email = 'google.traveler@gmail.com';
-    setUsers((us) => {
-      if (us.some((u) => u.email === email)) return us;
-      return [
-        ...us,
-        { name: 'Google Traveler', email, password: 'google-oauth-demo', phone: '', createdAt: Date.now() },
-      ];
-    });
-    setSessionEmail(email);
+    const email = "google.traveler@gmail.com";
+    setUsers((list) =>
+      list.some((u) => u.email === email)
+        ? list
+        : [
+            ...list,
+            {
+              name: "Google Traveler",
+              email,
+              password: "google-oauth-demo",
+              phone: "",
+              createdAt: Date.now(),
+            },
+          ],
+    );
+    setSession(email);
   }, []);
 
   const updateProfile = useCallback(
     (name: string, phone: string) => {
       if (!user) return;
-      setUsers((us) => us.map((u) => (u.email === user.email ? { ...u, name, phone } : u)));
-      notify('Profile saved');
+      setUsers((list) =>
+        list.map((u) => (u.email === user.email ? { ...u, name, phone } : u)),
+      );
+      notify("Profile saved");
     },
     [user, notify],
   );
 
-  /* ---------- catalog CRUD ---------- */
-
   const saveDestination = useCallback(
     (d: Destination) => {
-      setDestinations((list) => {
-        const exists = list.some((x) => x.id === d.id);
-        return exists ? list.map((x) => (x.id === d.id ? d : x)) : [...list, d];
-      });
-      notify('Destination saved');
+      setDestinations((list) =>
+        list.some((x) => x.id === d.id)
+          ? list.map((x) => (x.id === d.id ? d : x))
+          : [...list, d],
+      );
+      notify("Destination saved");
     },
     [notify],
   );
@@ -223,18 +274,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteDestination = useCallback(
     (id: number) => {
       setDestinations((list) => list.filter((x) => x.id !== id));
-      notify('Destination deleted');
+      notify("Destination deleted");
     },
     [notify],
   );
 
   const saveFlight = useCallback(
     (f: Flight) => {
-      setFlights((list) => {
-        const exists = list.some((x) => x.id === f.id);
-        return exists ? list.map((x) => (x.id === f.id ? f : x)) : [...list, f];
-      });
-      notify('Flight saved');
+      setFlights((list) =>
+        list.some((x) => x.id === f.id)
+          ? list.map((x) => (x.id === f.id ? f : x))
+          : [...list, f],
+      );
+      notify("Flight saved");
     },
     [notify],
   );
@@ -242,77 +294,91 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteFlight = useCallback(
     (id: number) => {
       setFlights((list) => list.filter((x) => x.id !== id));
-      notify('Flight deleted');
+      notify("Flight deleted");
     },
     [notify],
   );
 
   const addMedia = useCallback((items: MediaItem[]) => {
-    setMedia((m) => [...items, ...m]);
+    setMedia((list) => [...items, ...list]);
   }, []);
 
   const deleteMedia = useCallback(
     (id: string) => {
-      setMedia((m) => m.filter((x) => x.id !== id));
-      notify('Media deleted');
+      setMedia((list) => list.filter((x) => x.id !== id));
+      notify("Media deleted");
     },
     [notify],
   );
 
-  /* ---------- bookings ---------- */
-
-  const createBooking: StoreCtx['createBooking'] = useCallback(
-    (input) => {
+  const createBooking = useCallback(
+    (input: {
+      itemType: ItemType;
+      itemId: number;
+      itemName: string;
+      unitPrice: number;
+      passengers: number;
+      total: number;
+      paymentMethod: PaymentMethodId;
+      traveler: TravelerDetails;
+    }) => {
       if (!user) return null;
-      const booking: Booking = {
+      const b: Booking = {
         ...input,
-        id: newBookingId(),
+        id: bookingId(),
         createdAt: Date.now(),
         userEmail: user.email,
         bookedBy: user.name,
-        status: 'pending',
-        paymentInstructions: '',
+        status: "pending",
+        paymentInstructions: "",
       };
-      setBookings((b) => [booking, ...b]);
-      return booking;
+      setBookings((list) => [b, ...list]);
+      return b;
     },
     [user],
   );
 
   const approveBooking = useCallback(
     (id: string, instructions: string) => {
-      setBookings((bs) =>
-        bs.map((b) =>
-          b.id === id ? { ...b, status: 'approved' as const, paymentInstructions: instructions } : b,
+      setBookings((list) =>
+        list.map((b) =>
+          b.id === id
+            ? { ...b, status: "approved", paymentInstructions: instructions }
+            : b,
         ),
       );
-      // create a support chat thread for this booking, seeded with the payment instructions
-      setBookings((current) => {
-        const booking = current.find((b) => b.id === id);
-        if (booking) {
-          setThreads((ts) => {
-            if (ts.some((t) => t.bookingId === id)) return ts;
-            const thread: ChatThread = {
-              id: uid(),
-              bookingId: id,
-              userEmail: booking.userEmail,
-              userName: booking.bookedBy,
-              createdAt: Date.now(),
-              messages: [
-                {
-                  id: uid(),
-                  from: 'admin',
-                  text: `Your booking #${id} for "${booking.itemName}" has been approved. Total due: ${fmt(
-                    booking.total,
-                  )} via ${methodMeta(booking.paymentMethod).name}.\n\nPayment instructions:\n${instructions}\n\nReply here once payment is sent and we will confirm your reservation.`,
-                  at: Date.now(),
-                },
-              ],
-            };
-            return [thread, ...ts];
-          });
+      setBookings((list) => {
+        const b = list.find((x) => x.id === id);
+        if (b) {
+          setThreads((ts) =>
+            ts.some((t) => t.bookingId === id)
+              ? ts
+              : [
+                  {
+                    id: rid(),
+                    bookingId: id,
+                    userEmail: b.userEmail,
+                    userName: b.bookedBy,
+                    createdAt: Date.now(),
+                    messages: [
+                      {
+                        id: rid(),
+                        from: "admin",
+                        text: `Your booking #${id} for "${b.itemName}" has been approved. Total due: ${money(b.total)} via ${getPaymentMethod(b.paymentMethod).name}.
+
+Payment instructions:
+${instructions}
+
+Reply here once payment is sent and we will confirm your reservation.`,
+                        at: Date.now(),
+                      },
+                    ],
+                  },
+                  ...ts,
+                ],
+          );
         }
-        return current;
+        return list;
       });
       notify(`Booking #${id} approved — payment details sent to traveler`);
     },
@@ -320,14 +386,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const rejectBooking = useCallback(
-    (id: string, note: string) => {
-      setBookings((bs) =>
-        bs.map((b) =>
+    (id: string, note?: string) => {
+      setBookings((list) =>
+        list.map((b) =>
           b.id === id
             ? {
                 ...b,
-                status: 'rejected' as const,
-                paymentInstructions: note || 'Booking rejected by admin',
+                status: "rejected",
+                paymentInstructions: note || "Booking rejected by admin",
               }
             : b,
         ),
@@ -342,19 +408,95 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [bookings, user],
   );
 
-  /* ---------- chat ---------- */
-
   const sendMessage = useCallback(
-    (threadId: string, from: 'user' | 'admin', text: string) => {
-      setThreads((ts) =>
-        ts.map((t) =>
+    (threadId: string, from: ChatFrom, text: string, imageDataUrl?: string) => {
+      const imageId = imageDataUrl ? rid() : undefined;
+      if (imageDataUrl && imageId) {
+        setChatMedia((m) => ({ ...m, [imageId]: imageDataUrl }));
+      }
+      setThreads((list) =>
+        list.map((t) =>
           t.id === threadId
-            ? { ...t, messages: [...t.messages, { id: uid(), from, text, at: Date.now() }] }
+            ? {
+                ...t,
+                messages: [
+                  ...t.messages,
+                  {
+                    id: rid(),
+                    from,
+                    text,
+                    ...(imageId ? { imageId } : {}),
+                    at: Date.now(),
+                  },
+                ],
+              }
             : t,
         ),
       );
     },
     [],
+  );
+
+  const createTripRequest = useCallback(
+    (input: {
+      destination: string;
+      fromCity: string;
+      travelers: number;
+      checkIn: string;
+      checkOut: string;
+      budget: string;
+      notes: string;
+    }) => {
+      if (!user) return null;
+      const req: TripRequest = {
+        ...input,
+        id: requestId(),
+        createdAt: Date.now(),
+        userEmail: user.email,
+        userName: user.name,
+        status: "pending",
+        quote: 0,
+        adminNote: "",
+      };
+      setRequests((list) => [req, ...list]);
+      return req;
+    },
+    [user],
+  );
+
+  const quoteTripRequest = useCallback(
+    (id: string, quote: number, note: string) => {
+      setRequests((list) =>
+        list.map((r) =>
+          r.id === id ? { ...r, status: "approved", quote, adminNote: note } : r,
+        ),
+      );
+      notify(`Request #${id} approved — quote sent to traveler`);
+    },
+    [notify],
+  );
+
+  const declineTripRequest = useCallback(
+    (id: string, note?: string) => {
+      setRequests((list) =>
+        list.map((r) =>
+          r.id === id
+            ? {
+                ...r,
+                status: "rejected",
+                adminNote: note || "Not available for the selected dates.",
+              }
+            : r,
+        ),
+      );
+      notify(`Request #${id} declined`);
+    },
+    [notify],
+  );
+
+  const myTripRequests = useMemo(
+    () => (user ? requests.filter((r) => r.userEmail === user.email) : []),
+    [requests, user],
   );
 
   const resetAll = useCallback(() => {
@@ -363,11 +505,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setMedia(SEED_MEDIA);
     setBookings([]);
     setThreads([]);
-    setUsers((us) => us.filter((u) => u.email === ADMIN_EMAIL));
-    notify('Demo data reset');
+    setRequests([]);
+    setChatMedia({});
+    setUsers((list) => list.filter((u) => u.email === ADMIN_EMAIL));
+    notify("Demo data reset");
   }, [notify]);
 
-  const value: StoreCtx = {
+  const value: Store = {
     user,
     isAdmin,
     signIn,
@@ -390,7 +534,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     approveBooking,
     rejectBooking,
     threads,
+    chatMedia,
     sendMessage,
+    tripRequests: requests,
+    myTripRequests,
+    createTripRequest,
+    quoteTripRequest,
+    declineTripRequest,
     toasts,
     notify,
     resetAll,
@@ -399,10 +549,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
-export function useStore(): StoreCtx {
-  const ctx = useContext(Ctx);
-  if (!ctx) throw new Error('useStore must be used inside AppProvider');
-  return ctx;
+export function useStore() {
+  const s = useContext(Ctx);
+  if (!s) throw new Error("useStore must be used inside AppProvider");
+  return s;
 }
 
-export type { TravelerDetails, PaymentMethodId, BookingStatus };
+export type { BookableItem };

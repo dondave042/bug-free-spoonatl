@@ -1,11 +1,11 @@
-import { useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
-import { X } from 'lucide-react';
-import { useStore } from '../lib/store';
-import { ADMIN_EMAIL } from '../lib/data';
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { X } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { useStore } from "../lib/store";
+import { ADMIN_EMAIL } from "../lib/data";
 
-export default function AdminLoginModal({
+export function AdminLoginModal({
   open,
   onClose,
 }: {
@@ -13,10 +13,10 @@ export default function AdminLoginModal({
   onClose: () => void;
 }) {
   const { signIn, notify } = useStore();
-  const navigate = useNavigate();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const nav = useNavigate();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const submit = (e: React.FormEvent) => {
@@ -30,12 +30,12 @@ export default function AdminLoginModal({
         return;
       }
       if (email.trim().toLowerCase() !== ADMIN_EMAIL) {
-        setError('This account does not have admin privileges.');
+        setError("This account does not have admin privileges.");
         return;
       }
       onClose();
-      notify('Welcome back, admin');
-      navigate('/admin/dashboard');
+      notify("Welcome back, admin");
+      nav("/admin/dashboard");
     }, 500);
   };
 
@@ -76,33 +76,43 @@ export default function AdminLoginModal({
               </p>
             </div>
             <form onSubmit={submit} className="space-y-4">
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter email"
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 font-medium text-gray-900 outline-none focus:border-accent focus:ring-2 focus:ring-orange-200"
-              />
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password"
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 font-medium text-gray-900 outline-none focus:border-accent focus:ring-2 focus:ring-orange-200"
-              />
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-primary">
+                  Email
+                </span>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="admin@email.com"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3.5 text-sm font-bold text-slate-900 outline-none focus:border-accent focus:ring-2 focus:ring-orange-100"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-primary">
+                  Password
+                </span>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter password"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3.5 text-sm font-bold text-slate-900 outline-none focus:border-accent focus:ring-2 focus:ring-orange-100"
+                />
+              </label>
               {error && (
-                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+                <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-600">
                   {error}
                 </p>
               )}
               <button
                 type="submit"
                 disabled={busy}
-                className="w-full cursor-pointer rounded-lg bg-accent py-3 font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full cursor-pointer rounded-full bg-accent py-3.5 text-sm font-bold text-white shadow-lg shadow-orange-500/20 transition hover:bg-accent-hover disabled:opacity-60"
               >
-                {busy ? 'Signing in...' : 'Sign In'}
+                {busy ? "Signing in..." : "Sign In"}
               </button>
             </form>
           </motion.div>

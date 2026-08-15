@@ -1,12 +1,24 @@
 export type PaymentMethodId =
-  | 'cashapp'
-  | 'venmo'
-  | 'zelle'
-  | 'cryptocurrency'
-  | 'bank_transfer'
-  | 'paypal';
+  | "cashapp"
+  | "venmo"
+  | "zelle"
+  | "cryptocurrency"
+  | "bank"
+  | "paypal";
 
-export type BookingStatus = 'pending' | 'approved' | 'rejected';
+export type BookingStatus = "pending" | "approved" | "rejected";
+export type RequestStatus = "pending" | "approved" | "rejected";
+export type MediaType = "photo" | "video";
+export type ItemType = "destination" | "flight";
+export type ChatFrom = "user" | "admin";
+
+export interface User {
+  name: string;
+  email: string;
+  password: string;
+  phone: string;
+  createdAt: number;
+}
 
 export interface Destination {
   id: number;
@@ -43,12 +55,21 @@ export interface Excursion {
   slug: string;
 }
 
+export interface Testimonial {
+  id: number;
+  name: string;
+  location: string;
+  rating: number;
+  text: string;
+  initials: string;
+}
+
 export interface MediaItem {
   id: string;
   url: string;
-  type: 'photo' | 'video';
+  type: MediaType;
   title: string;
-  source: 'seed' | 'upload';
+  source: string;
 }
 
 export interface TravelerDetails {
@@ -63,37 +84,32 @@ export interface TravelerDetails {
   emergencyName: string;
   emergencyPhone: string;
   notes: string;
+  checkIn: string;
+  checkOut: string;
 }
 
 export interface Booking {
   id: string;
-  createdAt: number;
-  userEmail: string;
-  bookedBy: string;
-  itemType: 'flight' | 'destination';
+  itemType: ItemType;
   itemId: number;
   itemName: string;
   unitPrice: number;
   passengers: number;
   total: number;
-  status: BookingStatus;
   paymentMethod: PaymentMethodId;
-  paymentInstructions: string;
   traveler: TravelerDetails;
-}
-
-export interface UserAccount {
-  name: string;
-  email: string;
-  password: string;
-  phone: string;
   createdAt: number;
+  userEmail: string;
+  bookedBy: string;
+  status: BookingStatus;
+  paymentInstructions: string;
 }
 
 export interface ChatMessage {
   id: string;
-  from: 'user' | 'admin';
+  from: ChatFrom;
   text: string;
+  imageId?: string;
   at: number;
 }
 
@@ -102,11 +118,28 @@ export interface ChatThread {
   bookingId: string;
   userEmail: string;
   userName: string;
-  messages: ChatMessage[];
   createdAt: number;
+  messages: ChatMessage[];
 }
 
-export interface PaymentMethodMeta {
+export interface TripRequest {
+  id: string;
+  destination: string;
+  fromCity: string;
+  travelers: number;
+  checkIn: string;
+  checkOut: string;
+  budget: string;
+  notes: string;
+  createdAt: number;
+  userEmail: string;
+  userName: string;
+  status: RequestStatus;
+  quote: number;
+  adminNote: string;
+}
+
+export interface PaymentMethod {
   id: PaymentMethodId;
   name: string;
   badge: string;
@@ -115,8 +148,14 @@ export interface PaymentMethodMeta {
   template: (bookingId: string) => string;
 }
 
-export interface ToastMsg {
+export interface BookableItem {
+  id: number;
+  name: string;
+  price: number;
+}
+
+export interface Toast {
   id: number;
   msg: string;
-  kind: 'ok' | 'error';
+  kind: "ok" | "error";
 }
