@@ -388,17 +388,17 @@ export function Home() {
             <div>
               <h4 className="mb-3 font-bold text-primary">Follow us</h4>
               <div className="flex gap-3">
-                {SOCIALS.map((s) => (
+                {SOCIALS.map(({ id, href, label, Icon }) => (
                   <a
-                    key={s.id}
-                    href={s.href}
+                    key={id}
+                    href={href}
                     target="_blank"
                     rel="noreferrer"
-                    aria-label={s.label}
-                    title={s.label}
+                    aria-label={label}
+                    title={label}
                     className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-white shadow-md transition hover:scale-105 hover:bg-accent"
                   >
-                    <s.Icon className="h-4.5 w-4.5" />
+                    <Icon className="h-4.5 w-4.5" />
                   </a>
                 ))}
               </div>
