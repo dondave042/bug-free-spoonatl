@@ -58,12 +58,6 @@ export const SOCIALS = [
     Icon: TikTokIcon,
   },
   {
-    id: "instagram",
-    label: "Instagram",
-    href: "https://www.instagram.com",
-    Icon: InstagramIcon,
-  },
-  {
     id: "facebook",
     label: "Facebook",
     href: "https://www.facebook.com",
