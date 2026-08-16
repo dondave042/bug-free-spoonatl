@@ -5,6 +5,7 @@ import { Header } from "../components/Header";
 import { Footer } from "../components/Footer";
 import { useStore } from "../lib/store";
 import { FIELD_LG } from "../lib/utils";
+import { ADMIN_EMAIL } from "../lib/data";
 
 export function Login() {
   const { signIn, signUp, googleDemoSignIn, notify } = useStore();
@@ -24,8 +25,9 @@ export function Login() {
         setError(err);
         return;
       }
-      notify("Welcome back");
-      nav("/user/dashboard");
+      const isAdminLogin = form.email.trim().toLowerCase() === ADMIN_EMAIL;
+      notify(isAdminLogin ? "Welcome back, admin" : "Welcome back");
+      nav(isAdminLogin ? "/admin/dashboard" : "/user/dashboard");
     } else {
       const err = await signUp(form.name, form.email, form.password);
       if (err) {
