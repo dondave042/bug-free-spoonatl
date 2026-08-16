@@ -1,8 +1,9 @@
+import type { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { useStore } from "../lib/store";
 
 interface ProtectedRouteProps {
-  children: React.ReactNode;
+  children: ReactNode;
   requireAdmin?: boolean;
 }
 
