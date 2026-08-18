@@ -201,11 +201,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
   }, []);
 
-  const user = useMemo(
-    () => users.find((u) => u.email === session) ?? null,
-    [users, session],
-  );
-  const isAdmin = user?.email === ADMIN_EMAIL;
+  const user = useMemo(() => {
+    if (!session) return null;
+    return users.find((u) => u.email.toLowerCase() === session.toLowerCase()) ?? {
+      name: session.split("@")[0] || "Traveler",
+      email: session.toLowerCase(),
+      password: "",
+      phone: "",
+      createdAt: Date.now(),
+    };
+  }, [users, session]);
+  const isAdmin = user?.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
   useEffect(() => {
     if (!supabase || !user) return;
