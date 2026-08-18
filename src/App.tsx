@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { AppProvider, useStore } from "./lib/store";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Home } from "./pages/Home";
 import { Destinations } from "./pages/Destinations";
 import { Bookings } from "./pages/Bookings";
@@ -51,10 +52,38 @@ export default function App() {
           <Route path="/bookings" element={<Bookings />} />
           <Route path="/gallery" element={<Gallery />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/chat" element={<Chat />} />
-          <Route path="/user/dashboard" element={<UserDashboard />} />
-          <Route path="/admin/dashboard" element={<AdminDashboard />} />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/chat"
+            element={
+              <ProtectedRoute>
+                <Chat />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/user/dashboard"
+            element={
+              <ProtectedRoute>
+                <UserDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/dashboard"
+            element={
+              <ProtectedRoute requireAdmin>
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppProvider>
