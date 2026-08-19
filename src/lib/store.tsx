@@ -354,7 +354,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!user || !supabase) return null;
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) return null;
-      const booking = { ...input, id: bookingId(), createdAt: Date.now(), userEmail: user.email, bookedBy: user.name, status: "pending" as const, paymentInstructions: "" };
+      const booking = { ...input, id: crypto.randomUUID(), createdAt: Date.now(), userEmail: user.email, bookedBy: user.name, status: "pending" as const, paymentInstructions: "" };
       const { error } = await supabase.from("bookings").insert({
         id: booking.id,
         user_id: authData.user.id,
@@ -363,7 +363,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         travelers: input.passengers,
         notes: JSON.stringify(booking),
       });
-      if (error) { notify("Could not create booking", "error"); return null; }
+      if (error) { notify(`Could not create booking: ${error.message}`, "error"); return null; }
       setBookings((list) => [booking, ...list]);
       return booking;
     },
