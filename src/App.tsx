@@ -41,12 +41,11 @@ function Toasts() {
   );
 }
 
-export default function App() {
+function AppContent() {
   return (
-    <BrowserRouter>
-      <AppProvider>
-        <Toasts />
-        <Routes>
+    <>
+      <Toasts />
+      <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/destinations" element={<Destinations />} />
           <Route path="/bookings" element={<Bookings />} />
@@ -85,7 +84,16 @@ export default function App() {
             }
           />
           <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+      </Routes>
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppProvider>
+        <AppContent />
       </AppProvider>
     </BrowserRouter>
   );
