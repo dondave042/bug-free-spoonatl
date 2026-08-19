@@ -25,7 +25,7 @@ export function Login() {
         setError(err);
         return;
       }
-      const isAdminLogin = form.email.trim().toLowerCase() === ADMIN_EMAIL;
+      const isAdminLogin = form.email.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase();
       notify(isAdminLogin ? "Welcome back, admin" : "Welcome back");
       nav(isAdminLogin ? "/admin/dashboard" : "/user/dashboard");
     } else {

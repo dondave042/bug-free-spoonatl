@@ -211,7 +211,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createdAt: Date.now(),
     };
   }, [users, session]);
-  const isAdmin = user?.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  const isAdmin =
+    session.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase() ||
+    user?.email.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase();
 
   useEffect(() => {
     if (!supabase || !user) return;
