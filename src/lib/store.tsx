@@ -131,6 +131,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   });
   const [session, setSession] = useState(() => load<string>(K.session, ""));
+  const [remoteAdmin, setRemoteAdmin] = useState(false);
   const [destinations, setDestinations] = useState(() =>
     load(K.destinations, SEED_DESTINATIONS),
   );
@@ -188,9 +189,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const db = supabase;
-    if (!db || session.trim().toLowerCase() !== ADMIN_EMAIL.trim().toLowerCase()) return;
+    if (!db || !session) return;
     let active = true;
     const syncAdminData = async () => {
+      const { data: authData } = await db.auth.getUser();
+      const authUser = authData.user;
+      if (!authUser) return;
+      const { data: ownProfile } = await db.from("profiles").select("role").eq("id", authUser.id).maybeSingle();
+      const adminUser = ownProfile?.role === "admin" || authUser.email?.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase();
+      if (!adminUser) {
+        setRemoteAdmin(false);
+        return;
+      }
+      setRemoteAdmin(true);
       const [profilesResult, bookingsResult, destinationsResult, flightsResult, mediaResult] = await Promise.all([
         db.from("profiles").select("id,email,full_name,phone,role,created_at").order("created_at", { ascending: false }),
         db.from("bookings").select("id,user_id,destination,travel_date,travelers,status,notes,created_at").order("created_at", { ascending: false }),
@@ -243,6 +254,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [users, session]);
   const isAdmin =
+    remoteAdmin ||
     session.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase() ||
     user?.email.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase();
 
