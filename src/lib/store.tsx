@@ -185,6 +185,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => { active = false; listener.subscription.unsubscribe(); };
   }, []);
 
+  useEffect(() => {
+    const db = supabase;
+    if (!db || session.trim().toLowerCase() !== ADMIN_EMAIL.trim().toLowerCase()) return;
+    let active = true;
+    const syncAdminData = async () => {
+      const [profilesResult, bookingsResult, destinationsResult, flightsResult, mediaResult] = await Promise.all([
+        db.from("profiles").select("id,email,full_name,phone,role").order("created_at", { ascending: false }),
+        db.from("bookings").select("id,user_id,destination,travel_date,travelers,status,notes,created_at").order("created_at", { ascending: false }),
+        db.from("destinations").select("*").order("created_at", { ascending: false }),
+        db.from("flights").select("*").order("created_at", { ascending: false }),
+        db.from("media").select("*").order("created_at", { ascending: false }),
+      ]);
+      if (!active) return;
+      if (!profilesResult.error && profilesResult.data) {
+        setUsers(profilesResult.data.map((p) => ({ name: p.full_name ?? p.email?.split("@")[0] ?? "Traveler", email: p.email ?? "", password: "", phone: p.phone ?? "", createdAt: Date.now() })));
+      }
+      if (!bookingsResult.error && bookingsResult.data) {
+        setBookings(normalizeBookings(bookingsResult.data.map((row) => {
+          try { return { ...JSON.parse(row.notes ?? "{}"), id: row.id, status: row.status, createdAt: new Date(row.created_at).getTime(), userEmail: row.user_id } as Booking; }
+          catch { return { id: row.id, itemType: "destination", itemId: 0, itemName: row.destination, unitPrice: 0, passengers: row.travelers, total: 0, paymentMethod: "zelle", traveler: {} as TravelerDetails, userEmail: row.user_id, bookedBy: "Traveler", status: row.status, createdAt: new Date(row.created_at).getTime(), paymentInstructions: "" } as Booking; }
+        })));
+      }
+      if (!destinationsResult.error && destinationsResult.data?.length) setDestinations(destinationsResult.data as Destination[]);
+      if (!flightsResult.error && flightsResult.data?.length) setFlights(flightsResult.data as Flight[]);
+      if (!mediaResult.error && mediaResult.data) setMedia(mediaResult.data.map((m) => ({ id: m.id, url: m.file_url, type: m.file_type === "video" ? "video" : "photo", title: m.file_name ?? "", source: m.bucket })));
+    };
+    void syncAdminData();
+    return () => { active = false; };
+  }, [session]);
+
   useEffect(() => save(K.users, users), [users]);
   useEffect(() => save(K.session, session), [session]);
   useEffect(() => save(K.destinations, destinations), [destinations]);
