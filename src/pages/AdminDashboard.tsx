@@ -21,7 +21,7 @@ import { ModalShell, StatusPill } from "../components/ui";
 import { useStore } from "../lib/store";
 import { getPaymentMethod, PAYMENT_METHODS } from "../lib/data";
 import { FIELD, formatDateTime, money } from "../lib/utils";
-import type { Booking, Destination, Flight, TripRequest } from "../lib/types";
+import type { Booking, Destination, Flight, TripRequest, User } from "../lib/types";
 
 const TABS = [
   {
@@ -37,6 +37,13 @@ const TABS = [
     short: "Books",
     desc: "Approve or reject bookings",
     icon: Plane,
+  },
+  {
+    id: "users",
+    label: "Registered Users",
+    short: "Users",
+    desc: "View all registered travelers",
+    icon: ShieldAlert,
   },
   {
     id: "requests",
@@ -78,7 +85,7 @@ const TABS = [
 type TabId = (typeof TABS)[number]["id"];
 
 export function AdminDashboard() {
-  const { user, isAdmin, signOut, bookings, tripRequests, resetAll } =
+  const { user, isAdmin, signOut, bookings, users, tripRequests, resetAll } =
     useStore();
   const [tab, setTab] = useState<TabId>("overview");
 
@@ -209,6 +216,7 @@ export function AdminDashboard() {
             />
           )}
           {tab === "bookings" && <BookingsPanel />}
+          {tab === "users" && <UsersPanel users={users} />}
           {tab === "requests" && <RequestsPanel />}
           {tab === "flights" && <FlightsPanel />}
           {tab === "destinations" && <DestinationsPanel />}
@@ -343,6 +351,32 @@ function Overview({ onReview }: { onReview: () => void }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function UsersPanel({ users }: { users: User[] }) {
+  const [q, setQ] = useState("");
+  const list = users.filter((item) => {
+    const search = q.trim().toLowerCase();
+    return !search || [item.name, item.email, item.phone].some((value) => value.toLowerCase().includes(search));
+  });
+
+  return (
+    <section>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-3xl font-bold text-primary">Registered Users</h1>
+          <p className="mt-1 text-sm font-medium text-slate-500">{users.length} users loaded from Supabase.</p>
+        </div>
+        <input value={q} onChange={(event) => setQ(event.target.value)} placeholder="Search name, email, phone" className="rounded-full border border-slate-200 px-4 py-2 text-sm font-bold" />
+      </div>
+      <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-100 bg-white">
+        <table className="w-full min-w-[760px] text-left text-sm">
+          <thead className="border-b border-slate-100 text-[11px] font-bold tracking-wider text-slate-400 uppercase"><tr><th className="px-4 py-3">Name</th><th className="px-4 py-3">Email</th><th className="px-4 py-3">Phone</th><th className="px-4 py-3">Registered</th></tr></thead>
+          <tbody>{list.length === 0 ? <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-400">No registered users found</td></tr> : list.map((item) => <tr key={item.email} className="border-b border-slate-50"><td className="px-4 py-3 font-bold text-primary">{item.name}</td><td className="px-4 py-3">{item.email}</td><td className="px-4 py-3">{item.phone || "—"}</td><td className="px-4 py-3 text-slate-500">{formatDateTime(item.createdAt)}</td></tr>)}</tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
