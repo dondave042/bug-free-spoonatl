@@ -63,6 +63,7 @@ function normalizeBookings(raw: unknown): Booking[] {
 interface Store {
   user: User | null;
   isAdmin: boolean;
+  users: User[];
   signIn: (email: string, password: string) => Promise<string | null>;
   signUp: (name: string, email: string, password: string) => Promise<string | null>;
   googleDemoSignIn: () => void;
@@ -191,7 +192,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let active = true;
     const syncAdminData = async () => {
       const [profilesResult, bookingsResult, destinationsResult, flightsResult, mediaResult] = await Promise.all([
-        db.from("profiles").select("id,email,full_name,phone,role").order("created_at", { ascending: false }),
+        db.from("profiles").select("id,email,full_name,phone,role,created_at").order("created_at", { ascending: false }),
         db.from("bookings").select("id,user_id,destination,travel_date,travelers,status,notes,created_at").order("created_at", { ascending: false }),
         db.from("destinations").select("*").order("created_at", { ascending: false }),
         db.from("flights").select("*").order("created_at", { ascending: false }),
@@ -199,7 +200,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ]);
       if (!active) return;
       if (!profilesResult.error && profilesResult.data) {
-        setUsers(profilesResult.data.map((p) => ({ name: p.full_name ?? p.email?.split("@")[0] ?? "Traveler", email: p.email ?? "", password: "", phone: p.phone ?? "", createdAt: Date.now() })));
+        setUsers(profilesResult.data.map((p) => ({ name: p.full_name ?? p.email?.split("@")[0] ?? "Traveler", email: p.email ?? "", password: "", phone: p.phone ?? "", createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now() })));
       }
       if (!bookingsResult.error && bookingsResult.data) {
         setBookings(normalizeBookings(bookingsResult.data.map((row) => {
@@ -583,10 +584,11 @@ Reply here once payment is sent and we will confirm your reservation.`,
     notify("Demo data reset");
   }, [notify]);
 
-  const value: Store = {
-    user,
-    isAdmin,
-    signIn,
+const value: Store = {
+  user,
+  isAdmin,
+  users,
+  signIn,
     signUp,
     googleDemoSignIn,
     signOut,
