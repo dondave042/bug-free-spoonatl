@@ -254,7 +254,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
       setBookings((local) => normalizeBookings([...remote, ...local.filter((item) => !remote.some((remoteItem) => remoteItem.id === item.id))]));
     });
-  }, [user, isAdmin]);
+  }, [user]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     if (!supabase) return "Supabase is not configured";
