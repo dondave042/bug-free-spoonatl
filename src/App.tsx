@@ -13,8 +13,7 @@ import { Chat } from "./pages/Chat";
 import { UserDashboard } from "./pages/UserDashboard";
 import { AdminDashboard } from "./pages/AdminDashboard";
 
-function Toasts() {
-  const { toasts } = useStore();
+function Toasts({ toasts }: { toasts: { id: number; msg: string; kind: "ok" | "error" }[] }) {
   return (
     <div className="pointer-events-none fixed right-4 bottom-4 z-[90] flex w-80 flex-col gap-2">
       <AnimatePresence>
@@ -42,9 +41,11 @@ function Toasts() {
 }
 
 function AppContent() {
+  const { toasts } = useStore();
+
   return (
     <>
-      <Toasts />
+      <Toasts toasts={toasts} />
       <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/destinations" element={<Destinations />} />
