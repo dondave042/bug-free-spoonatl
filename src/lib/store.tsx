@@ -22,6 +22,7 @@ import type {
   Booking,
   BookableItem,
   ChatFrom,
+  ChatMessage,
   ChatThread,
   Destination,
   Flight,
@@ -237,6 +238,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => save(K.requests, requests), [requests]);
   useEffect(() => save(K.chatMedia, chatMedia), [chatMedia]);
 
+  useEffect(() => {
+    const db = supabase;
+    if (!db || !session) return;
+    let active = true;
+    const loadMessages = async () => {
+      const { data: authData } = await db.auth.getUser();
+      if (!authData.user || !active) return;
+      const [{ data: remoteThreads }, { data: remoteMessages }, { data: profiles }] = await Promise.all([
+        db.from("chat_threads").select("id,booking_id,user_id,created_at").order("created_at", { ascending: true }),
+        db.from("chat_messages").select("id,thread_id,sender_id,is_admin,body,created_at").order("created_at", { ascending: true }),
+        db.from("profiles").select("id,email,full_name"),
+      ]);
+      if (!active || !remoteThreads) return;
+      const profileMap = new Map((profiles ?? []).map((p) => [p.id, p]));
+      const mapped = remoteThreads.map((t) => ({
+        id: t.id,
+        bookingId: t.booking_id,
+        userEmail: profileMap.get(t.user_id)?.email ?? "",
+        userName: profileMap.get(t.user_id)?.full_name ?? "Traveler",
+        createdAt: new Date(t.created_at).getTime(),
+        messages: (remoteMessages ?? []).filter((m) => m.thread_id === t.id).map((m) => ({ id: m.id, from: m.is_admin ? "admin" : "user", text: m.body, at: new Date(m.created_at).getTime() } as ChatMessage)),
+      }));
+      setThreads((current) => {
+        const localOnly = current.filter((t) => !mapped.some((remote) => remote.id === t.id));
+        return [...mapped, ...localOnly];
+      });
+    };
+    void loadMessages();
+    const channel = db.channel("live-support-chat")
+      .on("postgres_changes", { event: "*", schema: "public", table: "chat_threads" }, () => void loadMessages())
+      .on("postgres_changes", { event: "*", schema: "public", table: "chat_messages" }, () => void loadMessages())
+      .subscribe();
+    return () => { active = false; void db.removeChannel(channel); };
+  }, [session]);
+
   const notify = useCallback((msg: string, kind: Toast["kind"] = "ok") => {
     const id = ++toastSeq.current;
     setToasts((t) => [...t, { id, msg, kind }]);
@@ -416,9 +452,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const approveBooking = useCallback(
     (id: string, instructions: string) => {
       const db = supabase;
-      if (db) void db.from("bookings").select("notes").eq("id", id).maybeSingle().then(({ data }) => {
+      if (db) void db.from("bookings").select("notes,user_id").eq("id", id).maybeSingle().then(({ data }) => {
         if (!data) return;
-        try { const current = JSON.parse(data.notes ?? "{}"); void db.from("bookings").update({ status: "approved", notes: JSON.stringify({ ...current, status: "approved", paymentInstructions: instructions }) }).eq("id", id); } catch { /* preserve local fallback */ }
+        try {
+          const current = JSON.parse(data.notes ?? "{}");
+          void db.from("bookings").update({ status: "approved", notes: JSON.stringify({ ...current, status: "approved", paymentInstructions: instructions }) }).eq("id", id);
+          const threadId = crypto.randomUUID();
+          const messageId = crypto.randomUUID();
+          void db.from("chat_threads").insert({ id: threadId, booking_id: id, user_id: data.user_id });
+          void db.auth.getUser().then(({ data: authData }) => {
+            if (authData.user) void db.from("chat_messages").insert({ id: messageId, thread_id: threadId, sender_id: authData.user.id, is_admin: true, body: `Your booking #${id} has been approved.\\n\\nPayment instructions:\\n${instructions}` });
+          });
+        } catch { /* preserve local fallback */ }
       });
       setBookings((list) =>
         list.map((b) =>
@@ -468,7 +513,7 @@ Reply here once payment is sent and we will confirm your reservation.`,
   const rejectBooking = useCallback(
     (id: string, note?: string) => {
       const db = supabase;
-      if (db) void db.from("bookings").select("notes").eq("id", id).maybeSingle().then(({ data }) => {
+      if (db) void db.from("bookings").select("notes,user_id").eq("id", id).maybeSingle().then(({ data }) => {
         if (!data) return;
         try { const current = JSON.parse(data.notes ?? "{}"); void db.from("bookings").update({ status: "rejected", notes: JSON.stringify({ ...current, status: "rejected", paymentInstructions: note || "Booking rejected by admin" }) }).eq("id", id); } catch { /* preserve local fallback */ }
       });
@@ -499,25 +544,25 @@ Reply here once payment is sent and we will confirm your reservation.`,
       if (imageDataUrl && imageId) {
         setChatMedia((m) => ({ ...m, [imageId]: imageDataUrl }));
       }
+      const messageId = crypto.randomUUID();
+      const sentAt = Date.now();
       setThreads((list) =>
         list.map((t) =>
           t.id === threadId
             ? {
                 ...t,
-                messages: [
-                  ...t.messages,
-                  {
-                    id: rid(),
-                    from,
-                    text,
-                    ...(imageId ? { imageId } : {}),
-                    at: Date.now(),
-                  },
-                ],
+                messages: [...t.messages, { id: messageId, from, text, ...(imageId ? { imageId } : {}), at: sentAt }],
               }
             : t,
         ),
       );
+      const db = supabase;
+      if (db) {
+        void db.auth.getUser().then(({ data }) => {
+          if (!data.user) return;
+          void db.from("chat_messages").insert({ id: messageId, thread_id: threadId, sender_id: data.user.id, is_admin: from === "admin", body: text });
+        });
+      }
     },
     [],
   );
