@@ -407,11 +407,10 @@ function BookingsPanel() {
     <div>
       <h1 className="font-display text-3xl font-bold text-primary">Bookings</h1>
       <p className="mt-1 text-sm font-medium text-slate-500">
-        {bookings.length} bookings — each row shows the traveler&apos;s chosen
-        payment method.
+{bookings.length} total bookings — including pending, approved, rejected, and canceled history from Supabase.
       </p>
       <div className="mt-5 flex flex-wrap gap-2">
-        {(["all", "pending", "approved", "rejected"] as const).map((s) => (
+        {(["all", "pending", "approved", "rejected", "canceled"] as const).map((s) => (
           <button
             key={s}
             type="button"

@@ -64,6 +64,7 @@ function normalizeBookings(raw: unknown): Booking[] {
 interface Store {
   user: User | null;
   isAdmin: boolean;
+  adminCheckComplete: boolean;
   users: User[];
   signIn: (email: string, password: string) => Promise<string | null>;
   signUp: (name: string, email: string, password: string) => Promise<string | null>;
@@ -133,6 +134,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   });
   const [session, setSession] = useState(() => load<string>(K.session, ""));
   const [remoteAdmin, setRemoteAdmin] = useState(false);
+  const [adminCheckComplete, setAdminCheckComplete] = useState(false);
   const [destinations, setDestinations] = useState(() =>
     load(K.destinations, SEED_DESTINATIONS),
   );
@@ -190,8 +192,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const db = supabase;
-    if (!db || !session) return;
+    if (!db || !session) {
+      setAdminCheckComplete(Boolean(session && session.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase()));
+      return;
+    }
     let active = true;
+    setAdminCheckComplete(false);
     const syncAdminData = async () => {
       const { data: authData } = await db.auth.getUser();
       const authUser = authData.user;
@@ -200,9 +206,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const adminUser = ownProfile?.role === "admin" || authUser.email?.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase();
       if (!adminUser) {
         setRemoteAdmin(false);
+        setAdminCheckComplete(true);
         return;
       }
       setRemoteAdmin(true);
+      setAdminCheckComplete(true);
       const [profilesResult, bookingsResult, destinationsResult, flightsResult, mediaResult] = await Promise.all([
         db.from("profiles").select("id,email,full_name,phone,role,created_at").order("created_at", { ascending: false }),
         db.from("bookings").select("id,user_id,destination,travel_date,travelers,status,notes,created_at").order("created_at", { ascending: false }),
@@ -644,6 +652,7 @@ Reply here once payment is sent and we will confirm your reservation.`,
 const value: Store = {
   user,
   isAdmin,
+  adminCheckComplete,
   users,
   signIn,
     signUp,

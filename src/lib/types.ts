@@ -6,7 +6,7 @@ export type PaymentMethodId =
   | "bank"
   | "paypal";
 
-export type BookingStatus = "pending" | "approved" | "rejected";
+export type BookingStatus = "pending" | "approved" | "rejected" | "canceled";
 export type RequestStatus = "pending" | "approved" | "rejected";
 export type MediaType = "photo" | "video";
 export type ItemType = "destination" | "flight";
