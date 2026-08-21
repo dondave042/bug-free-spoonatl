@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { Analytics } from "@vercel/analytics/react";
 import { AppProvider, useStore } from "./lib/store";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Home } from "./pages/Home";
@@ -95,6 +96,7 @@ export default function App() {
     <BrowserRouter>
       <AppProvider>
         <AppContent />
+        <Analytics />
       </AppProvider>
     </BrowserRouter>
   );
