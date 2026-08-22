@@ -1,3 +1,5 @@
+/* eslint-disable react-refresh/only-export-components */
+
 export function TikTokIcon({ className }: { className?: string }) {
   return (
     <svg

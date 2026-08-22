@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import {
   createContext,
   useCallback,
@@ -139,7 +140,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     let active = true;
-    setAdminCheckComplete(false);
+    queueMicrotask(() => setAdminCheckComplete(false));
     const syncAdminData = async () => {
       const { data: authData } = await db.auth.getUser();
       const authUser = authData.user;
@@ -238,7 +239,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       email: session.toLowerCase(),
       password: "",
       phone: "",
-      createdAt: Date.now(),
+      createdAt: 0,
     };
   }, [users, session]);
   const isAdmin = remoteAdmin;
@@ -401,18 +402,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       const db = supabase;
-      if (db) void db.from("bookings").select("notes,user_id").eq("id", id).maybeSingle().then(({ data }) => {
-        if (!data) return;
-        try {
-          const current = JSON.parse(data.notes ?? "{}");
-          void db.from("bookings").update({ status: "approved", notes: JSON.stringify({ ...current, status: "approved", paymentInstructions: instructions }) }).eq("id", id);
+      if (db) void db.from("bookings").select("user_id").eq("id", id).maybeSingle().then(async ({ data, error }) => {
+        if (error || !data) {
+          notify("Could not find that booking", "error");
+          return;
+        }
+        const result = await db.from("bookings").update({ status: "approved", payment_instructions: instructions }).eq("id", id);
+        if (result.error) {
+          notify("Could not approve booking", "error");
+          return;
+        }
+        const { data: authData } = await db.auth.getUser();
+        if (authData.user) {
           const threadId = crypto.randomUUID();
-          const messageId = crypto.randomUUID();
-          void db.from("chat_threads").insert({ id: threadId, booking_id: id, user_id: data.user_id });
-          void db.auth.getUser().then(({ data: authData }) => {
-            if (authData.user) void db.from("chat_messages").insert({ id: messageId, thread_id: threadId, sender_id: authData.user.id, is_admin: true, body: `Your booking #${id} has been approved.\\n\\nPayment instructions:\\n${instructions}` });
-          });
-        } catch { /* preserve local fallback */ }
+          await db.from("chat_threads").insert({ id: threadId, booking_id: id, user_id: data.user_id });
+          await db.from("chat_messages").insert({ id: crypto.randomUUID(), thread_id: threadId, sender_id: authData.user.id, is_admin: true, body: `Your booking #${id} has been approved.\\n\\nPayment instructions:\\n${instructions}` });
+        }
       });
       setBookings((list) =>
         list.map((b) =>
@@ -433,7 +438,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                     bookingId: id,
                     userEmail: b.userEmail,
                     userName: b.bookedBy,
-                    createdAt: Date.now(),
+      createdAt: 0,
                     messages: [
                       {
                         id: rid(),
@@ -466,9 +471,8 @@ Reply here once payment is sent and we will confirm your reservation.`,
         return;
       }
       const db = supabase;
-      if (db) void db.from("bookings").select("notes,user_id").eq("id", id).maybeSingle().then(({ data }) => {
-        if (!data) return;
-        try { const current = JSON.parse(data.notes ?? "{}"); void db.from("bookings").update({ status: "rejected", notes: JSON.stringify({ ...current, status: "rejected", paymentInstructions: note || "Booking rejected by admin" }) }).eq("id", id); } catch { /* preserve local fallback */ }
+      if (db) void db.from("bookings").update({ status: "rejected", payment_instructions: note || "Booking rejected by admin" }).eq("id", id).then(({ error }) => {
+        if (error) notify("Could not reject booking", "error");
       });
       setBookings((list) =>
         list.map((b) =>
@@ -541,6 +545,25 @@ Reply here once payment is sent and we will confirm your reservation.`,
         quote: 0,
         adminNote: "",
       };
+      const db = supabase;
+      if (db) {
+        void db.auth.getUser().then(({ data }) => {
+          if (!data.user) return;
+          return db.from("trip_requests").insert({
+            id: req.id,
+            user_id: data.user.id,
+            destination: req.destination,
+            from_city: req.fromCity,
+            travelers: req.travelers,
+            start_date: req.checkIn,
+            end_date: req.checkOut,
+            budget: req.budget,
+            notes: req.notes,
+          });
+        }).then((result) => {
+          if (result?.error) notify("Could not save trip request", "error");
+        });
+      }
       setRequests((list) => [req, ...list]);
       return req;
     },

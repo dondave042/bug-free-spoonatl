@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
