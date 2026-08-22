@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useStore } from "../lib/store";
-import { ADMIN_EMAIL } from "../lib/data";
 
 export function AdminLoginModal({
   open,
@@ -12,7 +11,7 @@ export function AdminLoginModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const { signIn, notify } = useStore();
+  const { signIn, isAdmin, notify } = useStore();
   const nav = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,7 +27,7 @@ export function AdminLoginModal({
       setError(err);
       return;
     }
-    if (email.trim().toLowerCase() !== ADMIN_EMAIL) {
+    if (!isAdmin) {
       setError("This account does not have admin privileges.");
       return;
     }
