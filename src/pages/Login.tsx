@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Lock, Mail } from "lucide-react";
 import { Header } from "../components/Header";
@@ -7,8 +7,15 @@ import { useStore } from "../lib/store";
 import { FIELD_LG } from "../lib/utils";
 
 export function Login() {
-  const { signIn, signUp, notify } = useStore();
+  const { signIn, signUp, isAdmin, adminCheckComplete, notify } = useStore();
   const nav = useNavigate();
+  const [pendingRedirect, setPendingRedirect] = useState(false);
+
+  useEffect(() => {
+    if (!pendingRedirect || !adminCheckComplete) return;
+    queueMicrotask(() => setPendingRedirect(false));
+    nav(isAdmin ? "/admin/dashboard" : "/user/dashboard", { replace: true });
+  }, [adminCheckComplete, isAdmin, nav, pendingRedirect]);
   const [mode, setMode] = useState<"in" | "up">("in");
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [error, setError] = useState("");
@@ -25,7 +32,7 @@ export function Login() {
         return;
       }
       notify("Welcome back");
-      nav("/user/dashboard");
+      setPendingRedirect(true);
     } else {
       const err = await signUp(form.name, form.email, form.password);
       if (err) {
@@ -116,9 +123,10 @@ export function Login() {
             )}
             <button
               type="submit"
-              className="w-full cursor-pointer rounded-full bg-accent py-3.5 text-sm font-bold text-white shadow-lg shadow-orange-500/20 transition hover:bg-accent-hover"
+              disabled={pendingRedirect}
+              className="w-full cursor-pointer rounded-full bg-accent py-3.5 text-sm font-bold text-white shadow-lg shadow-orange-500/20 transition hover:bg-accent-hover disabled:cursor-wait disabled:opacity-70"
             >
-              {mode === "in" ? "Sign in" : "Create account"}
+              {pendingRedirect ? "Checking access..." : mode === "in" ? "Sign in" : "Create account"}
             </button>
           </form>
           <p className="mt-5 text-center text-sm font-medium text-slate-500">
