@@ -98,10 +98,11 @@ export function Footer() {
           <button
             type="button"
             onClick={() => setAdminOpen(true)}
-            className="flex cursor-pointer items-center gap-1.5 rounded-full p-2 text-[11px] text-white/50 opacity-40 transition hover:opacity-100"
+            aria-haspopup="dialog"
+            className="flex min-h-10 cursor-pointer items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-bold text-white transition hover:border-accent hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary"
           >
-            <Lock className="h-3.5 w-3.5" />
-            Admin login
+            <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+            Admin Login
           </button>
         </div>
       </div>
