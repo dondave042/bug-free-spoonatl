@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import {
   createContext,
   useCallback,
@@ -9,13 +10,10 @@ import {
   type ReactNode,
 } from "react";
 import {
-  ADMIN_EMAIL,
-  ADMIN_USER,
   PAYMENT_IDS,
   SEED_DESTINATIONS,
   SEED_FLIGHTS,
   SEED_MEDIA,
-  STORAGE_KEYS as K,
   getPaymentMethod,
 } from "./data";
 import type {
@@ -34,25 +32,8 @@ import type {
   TripRequest,
   User,
 } from "./types";
-import { bookingId, money, requestId, rid } from "./utils";
+import { money, requestId, rid } from "./utils";
 import { supabase } from "./supabase";
-
-function load<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function save(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* quota */
-  }
-}
 
 function normalizeBookings(raw: unknown): Booking[] {
   if (!Array.isArray(raw)) return [];
@@ -68,7 +49,6 @@ interface Store {
   users: User[];
   signIn: (email: string, password: string) => Promise<string | null>;
   signUp: (name: string, email: string, password: string) => Promise<string | null>;
-  googleDemoSignIn: () => void;
   signOut: () => void;
   updateProfile: (name: string, phone: string) => void;
   destinations: Destination[];
@@ -123,57 +103,17 @@ interface Store {
 const Ctx = createContext<Store | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [users, setUsers] = useState<User[]>(() => {
-    const list = load<User[]>(K.users, []);
-    const withAdmin = list.some((u) => u.email === ADMIN_USER.email)
-      ? list
-      : [ADMIN_USER, ...list];
-    return withAdmin.map((u) =>
-      u.email === ADMIN_USER.email ? { ...u, password: ADMIN_USER.password } : u,
-    );
-  });
-  const [session, setSession] = useState(() => load<string>(K.session, ""));
+  const [users, setUsers] = useState<User[]>([]);
+  const [session, setSession] = useState("");
   const [remoteAdmin, setRemoteAdmin] = useState(false);
   const [adminCheckComplete, setAdminCheckComplete] = useState(false);
-  const [destinations, setDestinations] = useState(() =>
-    load(K.destinations, SEED_DESTINATIONS),
-  );
-  const [flights, setFlights] = useState(() => load(K.flights, SEED_FLIGHTS));
-  const [media, setMedia] = useState(() => load(K.media, SEED_MEDIA));
-  const [bookings, setBookings] = useState(() =>
-    normalizeBookings(load(K.bookings, [])),
-  );
-  const [threads, setThreads] = useState<ChatThread[]>(() => {
-    const list = load<ChatThread[]>(K.threads, []);
-    let migrated = false;
-    const mediaMap = load<Record<string, string>>(K.chatMedia, {});
-    const next = list.map((t) => ({
-      ...t,
-      messages: t.messages.map((m) => {
-        const img = (m as ChatThread["messages"][number] & { image?: string })
-          .image;
-        if (img && !m.imageId) {
-          const id = rid();
-          mediaMap[id] = img;
-          migrated = true;
-          const { image: _drop, ...rest } = m as typeof m & { image?: string };
-          void _drop;
-          return { ...rest, imageId: id };
-        }
-        return m;
-      }),
-    }));
-    if (migrated) save(K.chatMedia, mediaMap);
-    return next;
-  });
-  const [requests, setRequests] = useState<TripRequest[]>(() =>
-    load<TripRequest[]>(K.requests, []).filter((r) =>
-      ["pending", "approved", "rejected"].includes(r.status),
-    ),
-  );
-  const [chatMedia, setChatMedia] = useState<Record<string, string>>(() =>
-    load(K.chatMedia, {}),
-  );
+  const [destinations, setDestinations] = useState<Destination[]>(SEED_DESTINATIONS);
+  const [flights, setFlights] = useState<Flight[]>(SEED_FLIGHTS);
+  const [media, setMedia] = useState<MediaItem[]>(SEED_MEDIA);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [requests, setRequests] = useState<TripRequest[]>([]);
+  const [chatMedia, setChatMedia] = useState<Record<string, string>>({});
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastSeq = useRef(0);
 
@@ -185,7 +125,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, authSession) => {
       if (authSession?.user?.email) setSession(authSession.user.email);
-      else setSession("");
+      else {
+        setSession("");
+        setRemoteAdmin(false);
+        setAdminCheckComplete(true);
+      }
     });
     return () => { active = false; listener.subscription.unsubscribe(); };
   }, []);
@@ -193,17 +137,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const db = supabase;
     if (!db || !session) {
-      setAdminCheckComplete(Boolean(session && session.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase()));
       return;
     }
     let active = true;
-    setAdminCheckComplete(false);
+    queueMicrotask(() => setAdminCheckComplete(false));
     const syncAdminData = async () => {
       const { data: authData } = await db.auth.getUser();
       const authUser = authData.user;
       if (!authUser) return;
       const { data: ownProfile } = await db.from("profiles").select("role").eq("id", authUser.id).maybeSingle();
-      const adminUser = ownProfile?.role === "admin" || authUser.email?.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase();
+      const adminUser = ownProfile?.role === "admin";
       if (!adminUser) {
         setRemoteAdmin(false);
         setAdminCheckComplete(true);
@@ -213,7 +156,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setAdminCheckComplete(true);
       const [profilesResult, bookingsResult, destinationsResult, flightsResult, mediaResult] = await Promise.all([
         db.from("profiles").select("id,email,full_name,phone,role,created_at").order("created_at", { ascending: false }),
-        db.from("bookings").select("id,user_id,destination,travel_date,travelers,status,notes,created_at").order("created_at", { ascending: false }),
+        db.from("bookings").select("*").order("created_at", { ascending: false }),
         db.from("destinations").select("*").order("created_at", { ascending: false }),
         db.from("flights").select("*").order("created_at", { ascending: false }),
         db.from("media").select("*").order("created_at", { ascending: false }),
@@ -223,10 +166,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setUsers(profilesResult.data.map((p) => ({ name: p.full_name ?? p.email?.split("@")[0] ?? "Traveler", email: p.email ?? "", password: "", phone: p.phone ?? "", createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now() })));
       }
       if (!bookingsResult.error && bookingsResult.data) {
-        setBookings(normalizeBookings(bookingsResult.data.map((row) => {
-          try { return { ...JSON.parse(row.notes ?? "{}"), id: row.id, status: row.status, createdAt: new Date(row.created_at).getTime(), userEmail: row.user_id } as Booking; }
-          catch { return { id: row.id, itemType: "destination", itemId: 0, itemName: row.destination, unitPrice: 0, passengers: row.travelers, total: 0, paymentMethod: "zelle", traveler: {} as TravelerDetails, userEmail: row.user_id, bookedBy: "Traveler", status: row.status, createdAt: new Date(row.created_at).getTime(), paymentInstructions: "" } as Booking; }
-        })));
+        setBookings(normalizeBookings(bookingsResult.data.map((row) => ({
+        id: row.id,
+        itemType: row.item_type,
+        itemId: row.item_type === "flight" ? row.flight_id : row.destination_id,
+        itemName: row.item_name,
+        unitPrice: Number(row.unit_price),
+        passengers: row.passengers,
+        total: Number(row.total_price),
+        paymentMethod: row.payment_method,
+        traveler: { fullName: row.full_name, dob: row.dob ?? "", phone: row.phone ?? "", passport: row.passport ?? "", country: row.country ?? "", state: row.state ?? "", address: row.address ?? "", reason: row.reason ?? "", emergencyName: row.emergency_name ?? "", emergencyPhone: row.emergency_phone ?? "", notes: row.special_requests ?? "", checkIn: "", checkOut: "" },
+        userEmail: row.user_id,
+        bookedBy: row.full_name,
+        status: row.status,
+        createdAt: new Date(row.created_at).getTime(),
+        paymentInstructions: row.payment_instructions ?? "",
+      } as Booking))));
       }
       if (!destinationsResult.error && destinationsResult.data?.length) setDestinations(destinationsResult.data as Destination[]);
       if (!flightsResult.error && flightsResult.data?.length) setFlights(flightsResult.data as Flight[]);
@@ -235,16 +190,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void syncAdminData();
     return () => { active = false; };
   }, [session]);
-
-  useEffect(() => save(K.users, users), [users]);
-  useEffect(() => save(K.session, session), [session]);
-  useEffect(() => save(K.destinations, destinations), [destinations]);
-  useEffect(() => save(K.flights, flights), [flights]);
-  useEffect(() => save(K.media, media), [media]);
-  useEffect(() => save(K.bookings, bookings), [bookings]);
-  useEffect(() => save(K.threads, threads), [threads]);
-  useEffect(() => save(K.requests, requests), [requests]);
-  useEffect(() => save(K.chatMedia, chatMedia), [chatMedia]);
 
   useEffect(() => {
     const db = supabase;
@@ -294,29 +239,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       email: session.toLowerCase(),
       password: "",
       phone: "",
-      createdAt: Date.now(),
+      createdAt: 0,
     };
   }, [users, session]);
-  const isAdmin =
-    remoteAdmin ||
-    session.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase() ||
-    user?.email.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase();
-
-  useEffect(() => {
-    if (!supabase || !user) return;
-    void supabase.from("bookings").select("id, user_id, destination, travelers, status, notes, created_at").order("created_at", { ascending: false }).then(({ data }) => {
-      if (!data) return;
-      const remote = data.flatMap((row) => {
-        try { return [JSON.parse(row.notes ?? "{}")] as Booking[]; } catch { return []; }
-      });
-      setBookings((local) => normalizeBookings([...remote, ...local.filter((item) => !remote.some((remoteItem) => remoteItem.id === item.id))]));
-    });
-  }, [user]);
+  const isAdmin = remoteAdmin;
 
   const signIn = useCallback(async (email: string, password: string) => {
     if (!supabase) return "Supabase is not configured";
     const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
     if (error || !data.user) return "Invalid email or password";
+    setAdminCheckComplete(false);
+    setRemoteAdmin(false);
     setSession(data.user.email ?? email.trim().toLowerCase());
     return null;
   }, []);
@@ -343,25 +276,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(() => {
     void supabase?.auth.signOut();
     setSession("");
-  }, []);
-
-  const googleDemoSignIn = useCallback(() => {
-    const email = "google.traveler@gmail.com";
-    setUsers((list) =>
-      list.some((u) => u.email === email)
-        ? list
-        : [
-            ...list,
-            {
-              name: "Google Traveler",
-              email,
-              password: "google-oauth-demo",
-              phone: "",
-              createdAt: Date.now(),
-            },
-          ],
-    );
-    setSession(email);
   }, []);
 
   const updateProfile = useCallback(
@@ -442,36 +356,70 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) return null;
       const booking = { ...input, id: crypto.randomUUID(), createdAt: Date.now(), userEmail: user.email, bookedBy: user.name, status: "pending" as const, paymentInstructions: "" };
+      if (!Number.isInteger(input.passengers) || input.passengers < 1 || input.passengers > 20) {
+        notify("Please enter between 1 and 20 travelers", "error");
+        return null;
+      }
+      const item = input.itemType === "flight"
+        ? flights.find((flight) => flight.id === input.itemId)
+        : destinations.find((destination) => destination.id === input.itemId);
+      if (!item || input.unitPrice !== Number(item.price) || input.total !== Number(item.price) * input.passengers) {
+        notify("Booking price is no longer valid. Please try again.", "error");
+        return null;
+      }
       const { error } = await supabase.from("bookings").insert({
         id: booking.id,
         user_id: authData.user.id,
-        destination: input.itemName,
-        travel_date: new Date().toISOString().slice(0, 10),
-        travelers: input.passengers,
-        notes: JSON.stringify(booking),
+        item_type: input.itemType,
+        destination_id: input.itemType === "destination" ? input.itemId : null,
+        flight_id: input.itemType === "flight" ? input.itemId : null,
+        item_name: input.itemType === "flight" ? (item as Flight).airline + " — " + (item as Flight).arrival_city : (item as Destination).name,
+        unit_price: Number(item.price),
+        passengers: input.passengers,
+        total_price: Number(item.price) * input.passengers,
+        payment_method: input.paymentMethod,
+        full_name: input.traveler.fullName,
+        dob: input.traveler.dob || null,
+        phone: input.traveler.phone,
+        passport: input.traveler.passport,
+        country: input.traveler.country,
+        state: input.traveler.state,
+        address: input.traveler.address,
+        reason: input.traveler.reason,
+        emergency_name: input.traveler.emergencyName,
+        emergency_phone: input.traveler.emergencyPhone,
+        special_requests: input.traveler.notes,
       });
       if (error) { notify(`Could not create booking: ${error.message}`, "error"); return null; }
       setBookings((list) => [booking, ...list]);
       return booking;
     },
-    [user, notify],
+    [user, flights, destinations, notify],
   );
 
   const approveBooking = useCallback(
     (id: string, instructions: string) => {
+      if (!isAdmin) {
+        notify("You do not have permission to review bookings", "error");
+        return;
+      }
       const db = supabase;
-      if (db) void db.from("bookings").select("notes,user_id").eq("id", id).maybeSingle().then(({ data }) => {
-        if (!data) return;
-        try {
-          const current = JSON.parse(data.notes ?? "{}");
-          void db.from("bookings").update({ status: "approved", notes: JSON.stringify({ ...current, status: "approved", paymentInstructions: instructions }) }).eq("id", id);
+      if (db) void db.from("bookings").select("user_id").eq("id", id).maybeSingle().then(async ({ data, error }) => {
+        if (error || !data) {
+          notify("Could not find that booking", "error");
+          return;
+        }
+        const result = await db.from("bookings").update({ status: "approved", payment_instructions: instructions }).eq("id", id);
+        if (result.error) {
+          notify("Could not approve booking", "error");
+          return;
+        }
+        const { data: authData } = await db.auth.getUser();
+        if (authData.user) {
           const threadId = crypto.randomUUID();
-          const messageId = crypto.randomUUID();
-          void db.from("chat_threads").insert({ id: threadId, booking_id: id, user_id: data.user_id });
-          void db.auth.getUser().then(({ data: authData }) => {
-            if (authData.user) void db.from("chat_messages").insert({ id: messageId, thread_id: threadId, sender_id: authData.user.id, is_admin: true, body: `Your booking #${id} has been approved.\\n\\nPayment instructions:\\n${instructions}` });
-          });
-        } catch { /* preserve local fallback */ }
+          await db.from("chat_threads").insert({ id: threadId, booking_id: id, user_id: data.user_id });
+          await db.from("chat_messages").insert({ id: crypto.randomUUID(), thread_id: threadId, sender_id: authData.user.id, is_admin: true, body: `Your booking #${id} has been approved.\\n\\nPayment instructions:\\n${instructions}` });
+        }
       });
       setBookings((list) =>
         list.map((b) =>
@@ -492,7 +440,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                     bookingId: id,
                     userEmail: b.userEmail,
                     userName: b.bookedBy,
-                    createdAt: Date.now(),
+      createdAt: 0,
                     messages: [
                       {
                         id: rid(),
@@ -515,15 +463,18 @@ Reply here once payment is sent and we will confirm your reservation.`,
       });
       notify(`Booking #${id} approved — payment details sent to traveler`);
     },
-    [notify],
+    [isAdmin, notify],
   );
 
   const rejectBooking = useCallback(
     (id: string, note?: string) => {
+      if (!isAdmin) {
+        notify("You do not have permission to review bookings", "error");
+        return;
+      }
       const db = supabase;
-      if (db) void db.from("bookings").select("notes,user_id").eq("id", id).maybeSingle().then(({ data }) => {
-        if (!data) return;
-        try { const current = JSON.parse(data.notes ?? "{}"); void db.from("bookings").update({ status: "rejected", notes: JSON.stringify({ ...current, status: "rejected", paymentInstructions: note || "Booking rejected by admin" }) }).eq("id", id); } catch { /* preserve local fallback */ }
+      if (db) void db.from("bookings").update({ status: "rejected", payment_instructions: note || "Booking rejected by admin" }).eq("id", id).then(({ error }) => {
+        if (error) notify("Could not reject booking", "error");
       });
       setBookings((list) =>
         list.map((b) =>
@@ -538,7 +489,7 @@ Reply here once payment is sent and we will confirm your reservation.`,
       );
       notify(`Booking #${id} rejected`);
     },
-    [notify],
+    [isAdmin, notify],
   );
 
   const myBookings = useMemo(
@@ -596,10 +547,29 @@ Reply here once payment is sent and we will confirm your reservation.`,
         quote: 0,
         adminNote: "",
       };
+      const db = supabase;
+      if (db) {
+        void db.auth.getUser().then(({ data }) => {
+          if (!data.user) return;
+          return db.from("trip_requests").insert({
+            id: req.id,
+            user_id: data.user.id,
+            destination: req.destination,
+            from_city: req.fromCity,
+            travelers: req.travelers,
+            start_date: req.checkIn,
+            end_date: req.checkOut,
+            budget: req.budget,
+            notes: req.notes,
+          });
+        }).then((result) => {
+          if (result?.error) notify("Could not save trip request", "error");
+        });
+      }
       setRequests((list) => [req, ...list]);
       return req;
     },
-    [user],
+    [notify, user],
   );
 
   const quoteTripRequest = useCallback(
@@ -645,7 +615,7 @@ Reply here once payment is sent and we will confirm your reservation.`,
     setThreads([]);
     setRequests([]);
     setChatMedia({});
-    setUsers((list) => list.filter((u) => u.email === ADMIN_EMAIL));
+    setUsers([]);
     notify("Demo data reset");
   }, [notify]);
 
@@ -656,7 +626,6 @@ const value: Store = {
   users,
   signIn,
     signUp,
-    googleDemoSignIn,
     signOut,
     updateProfile,
     destinations,

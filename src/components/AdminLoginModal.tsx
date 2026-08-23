@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useStore } from "../lib/store";
-import { ADMIN_EMAIL } from "../lib/data";
 
 export function AdminLoginModal({
   open,
@@ -12,12 +11,25 @@ export function AdminLoginModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const { signIn, notify } = useStore();
+  const { signIn, isAdmin, adminCheckComplete, notify } = useStore();
   const nav = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [checkingAccess, setCheckingAccess] = useState(false);
+
+  useEffect(() => {
+    if (!checkingAccess || !adminCheckComplete) return;
+    queueMicrotask(() => setCheckingAccess(false));
+    if (isAdmin) {
+      onClose();
+      notify("Welcome back, admin");
+      nav("/admin/dashboard");
+    } else {
+      queueMicrotask(() => setError("This account does not have admin privileges."));
+    }
+  }, [adminCheckComplete, checkingAccess, isAdmin, nav, notify, onClose]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,13 +40,8 @@ export function AdminLoginModal({
       setError(err);
       return;
     }
-    if (email.trim().toLowerCase() !== ADMIN_EMAIL) {
-      setError("This account does not have admin privileges.");
-      return;
-    }
-    onClose();
-    notify("Welcome back, admin");
-    nav("/admin/dashboard");
+    setError("");
+    setCheckingAccess(true);
   };
 
   return (

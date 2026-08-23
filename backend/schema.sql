@@ -24,7 +24,7 @@ begin
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
-    case when new.email = 'atltravels@hotmail.com' then 'admin' else 'user' end
+    'user'
   )
   on conflict (id) do nothing;
   return new;
@@ -37,7 +37,7 @@ create trigger on_auth_user_created
 
 -- helper: is the current JWT an admin?
 create or replace function public.is_admin()
-returns boolean language sql stable as $$
+returns boolean language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.profiles
     where id = auth.uid() and role = 'admin'

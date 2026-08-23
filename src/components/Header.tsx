@@ -17,8 +17,6 @@ export function Header() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  useEffect(() => setOpen(false), [loc.pathname]);
-
   const jump = (href: string) => {
     if (!href.startsWith("/#")) return;
     const id = href.slice(2);

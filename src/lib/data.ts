@@ -5,22 +5,11 @@ import type {
   MediaItem,
   PaymentMethod,
   Testimonial,
-  User,
 } from "./types";
 
-export const ADMIN_EMAIL = "atltravels@hotmail.com";
-export const ADMIN_PASSWORD = "atltravels";
 export const CONTACT_EMAIL = "atltravels@hotmail.com";
 export const CONTACT_PHONE = "+1 754-342-3805";
 export const CONTACT_OFFICE = "Miami Beach 33105, United States";
-
-export const ADMIN_USER: User = {
-  name: "ATL Travels Admin",
-  email: ADMIN_EMAIL,
-  password: ADMIN_PASSWORD,
-  phone: CONTACT_PHONE,
-  createdAt: 0,
-};
 
 export const PAYMENT_METHODS: PaymentMethod[] = [
   {
