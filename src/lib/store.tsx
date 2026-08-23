@@ -248,6 +248,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!supabase) return "Supabase is not configured";
     const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
     if (error || !data.user) return "Invalid email or password";
+    setAdminCheckComplete(false);
+    setRemoteAdmin(false);
     setSession(data.user.email ?? email.trim().toLowerCase());
     return null;
   }, []);
@@ -567,7 +569,7 @@ Reply here once payment is sent and we will confirm your reservation.`,
       setRequests((list) => [req, ...list]);
       return req;
     },
-    [user],
+    [notify, user],
   );
 
   const quoteTripRequest = useCallback(
