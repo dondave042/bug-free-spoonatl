@@ -387,11 +387,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         passport: input.traveler.passport,
         country: input.traveler.country,
         state: input.traveler.state,
-        address: input.traveler.address,
         reason: input.traveler.reason,
         emergency_name: input.traveler.emergencyName,
         emergency_phone: input.traveler.emergencyPhone,
-        special_requests: input.traveler.notes,
+        special_requests: [
+          input.traveler.address ? `Address: ${input.traveler.address}` : "",
+          input.traveler.notes,
+        ].filter(Boolean).join("\n"),
       });
       if (error) { notify(`Could not create booking: ${error.message}`, "error"); return null; }
       setBookings((list) => [booking, ...list]);
