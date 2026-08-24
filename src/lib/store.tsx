@@ -145,8 +145,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const { data: authData } = await db.auth.getUser();
       const authUser = authData.user;
       if (!authUser) return;
-      const { data: ownProfile } = await db.from("profiles").select("role").eq("id", authUser.id).maybeSingle();
-      const adminUser = ownProfile?.role === "admin";
+      const { data: adminResult, error: adminError } = await db.rpc("is_admin");
+      const { data: ownProfile } = adminError
+        ? await db.from("profiles").select("role").eq("id", authUser.id).maybeSingle()
+        : { data: null };
+      const adminUser = adminError ? ownProfile?.role === "admin" : adminResult === true;
       if (!adminUser) {
         setRemoteAdmin(false);
         setAdminCheckComplete(true);
