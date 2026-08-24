@@ -8,6 +8,7 @@ This folder contains everything needed to stand the project up on
 | Piece | Where | Notes |
 | --- | --- | --- |
 | Database schema + RLS + triggers | `backend/schema.sql` | Run once in the Supabase SQL editor |
+| Existing database repair | `backend/migrations/20260824_add_bookings_address.sql` | Run this if the database was created before the address field was added |
 | Env vars | `backend/.env.example` | Add to Vercel → Settings → Environment Variables |
 | Admin account | — | Sign up with `atltravels@hotmail.com`; the `handle_new_user` trigger grants it the `admin` role automatically |
 

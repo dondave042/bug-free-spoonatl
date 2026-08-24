@@ -117,6 +117,11 @@ create table if not exists public.bookings (
   reviewed_by         uuid references auth.users(id)
 );
 
+-- Keep existing installations aligned with the current booking form. The
+-- create-table statement above does not alter a table that already exists.
+alter table public.bookings
+  add column if not exists address text;
+
 -- ---------- chat (thread is auto-created when a booking is approved) ----------
 create table if not exists public.chat_threads (
   id          uuid primary key default uuid_generate_v4(),
