@@ -49,7 +49,7 @@ export const PAYMENT_METHODS: PaymentMethod[] = [
       "Send USDT (TRC20): T123ATLTravelsCryptoWalletAddress... or BTC: 1ATLTravelsBtc... Include Booking # in the transfer memo/email.",
   },
   {
-    id: "bank",
+    id: "bank_transfer",
     name: "Bank Transfer",
     badge: "Bank Wire Info",
     desc: "Direct bank wire or ACH deposit",

@@ -3,7 +3,7 @@ export type PaymentMethodId =
   | "venmo"
   | "zelle"
   | "cryptocurrency"
-  | "bank"
+  | "bank_transfer"
   | "paypal";
 
 export type BookingStatus = "pending" | "approved" | "rejected" | "canceled";
