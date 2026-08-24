@@ -54,6 +54,10 @@ export function BookingModal({
   const patch = (p: Partial<TravelerDetails>) =>
     setTraveler((t) => ({ ...t, ...p }));
 
+  const continueToPayment = () => {
+    if (validate()) setStep(2);
+  };
+
   const validate = () => {
     const e: string[] = [];
     if (!traveler.fullName.trim()) e.push("Full name is required");
@@ -173,17 +177,19 @@ export function BookingModal({
                   </p>
                 </div>
 
-                <div className="mb-5 flex gap-2">
+                <div className="mb-5 flex gap-2" aria-label="Booking steps">
                   {["Traveler Details", "Payment Method"].map((label, i) => (
                     <button
                       key={label}
                       type="button"
-                      onClick={() => setStep(i + 1)}
-                      className={`flex-1 cursor-pointer rounded-full py-2 text-xs font-bold ${
-                        step === i + 1
+                      onClick={() => {
+                        if (i === 0) setStep(1);
+                        else continueToPayment();
+                      }}
+                      className={`flex-1 cursor-pointer rounded-full py-2 text-xs font-bold ${step === i + 1
                           ? "bg-primary text-white"
                           : "bg-slate-100 text-slate-500"
-                      }`}
+                        }`}
                     >
                       {i + 1}. {label}
                     </button>
@@ -346,11 +352,10 @@ export function BookingModal({
                     {PAYMENT_METHODS.map((m) => (
                       <label
                         key={m.id}
-                        className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition ${
-                          method === m.id
+                        className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition ${method === m.id
                             ? "border-accent bg-orange-50/50 ring-2 ring-accent/20"
                             : "border-slate-200 hover:border-slate-300"
-                        }`}
+                          }`}
                       >
                         <input
                           type="radio"
@@ -361,7 +366,7 @@ export function BookingModal({
                         />
                         <div>
                           <p className="text-sm font-bold text-primary">
-                            {m.name}{" "}
+                            {m.id === "cryptocurrency" ? "Crypto" : m.id === "bank_transfer" ? "Bank" : m.name}{" "}
                             <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold tracking-wide text-slate-500 uppercase">
                               {m.badge}
                             </span>
@@ -395,9 +400,7 @@ export function BookingModal({
                   {step === 1 ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        if (validate()) setStep(2);
-                      }}
+                      onClick={continueToPayment}
                       className="cursor-pointer rounded-full bg-primary px-7 py-2.5 text-sm font-bold text-white"
                     >
                       Continue
