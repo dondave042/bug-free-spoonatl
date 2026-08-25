@@ -385,13 +385,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         dob: input.traveler.dob || null,
         phone: input.traveler.phone,
         passport: input.traveler.passport,
-        country: input.traveler.country,
-        state: input.traveler.state,
-        reason: input.traveler.reason,
-        emergency_name: input.traveler.emergencyName,
-        emergency_phone: input.traveler.emergencyPhone,
         special_requests: [
           input.traveler.address ? `Address: ${input.traveler.address}` : "",
+          input.traveler.country ? `Country: ${input.traveler.country}` : "",
+          input.traveler.state ? `State: ${input.traveler.state}` : "",
+          input.traveler.reason ? `Reason: ${input.traveler.reason}` : "",
+          input.traveler.emergencyName ? `Emergency contact: ${input.traveler.emergencyName}` : "",
+          input.traveler.emergencyPhone ? `Emergency phone: ${input.traveler.emergencyPhone}` : "",
           input.traveler.notes,
         ].filter(Boolean).join("\n"),
       });
