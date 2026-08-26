@@ -42,6 +42,40 @@ function normalizeBookings(raw: unknown): Booking[] {
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function bookingFromRow(row: Record<string, any>): Booking {
+  return {
+    id: row.id,
+    itemType: row.item_type,
+    itemId: row.item_type === "flight" ? row.flight_id : row.destination_id,
+    itemName: row.item_name,
+    unitPrice: Number(row.unit_price),
+    passengers: Number(row.passengers),
+    total: Number(row.total_price),
+    paymentMethod: row.payment_method,
+    traveler: {
+      fullName: row.full_name ?? "",
+      dob: row.dob ?? "",
+      phone: row.phone ?? "",
+      passport: row.passport ?? "",
+      country: "",
+      state: "",
+      address: "",
+      reason: "",
+      emergencyName: "",
+      emergencyPhone: "",
+      notes: row.special_requests ?? "",
+      checkIn: "",
+      checkOut: "",
+    },
+    userEmail: row.user_id,
+    bookedBy: row.full_name ?? "Traveler",
+    status: row.status ?? "pending",
+    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+    paymentInstructions: row.payment_instructions ?? "",
+  };
+}
+
 interface Store {
   user: User | null;
   isAdmin: boolean;
@@ -192,6 +226,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
     void syncAdminData();
     return () => { active = false; };
+  }, [session]);
+
+  useEffect(() => {
+    const db = supabase;
+    if (!db || !session) return;
+    let active = true;
+    const loadUserBookings = async () => {
+      const { data: authData } = await db.auth.getUser();
+      if (!authData.user) return;
+      const { data, error } = await db.from("bookings").select("*").eq("user_id", authData.user.id).order("created_at", { ascending: false });
+      if (!active || error || !data) return;
+      setBookings((current) => {
+        const adminBookings = current.filter((booking) => booking.userEmail !== authData.user.id);
+        return [...normalizeBookings(data.map(bookingFromRow)), ...adminBookings];
+      });
+    };
+    void loadUserBookings();
+    const channel = db.channel("user-bookings").on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, () => void loadUserBookings()).subscribe();
+    return () => { active = false; void db.removeChannel(channel); };
   }, [session]);
 
   useEffect(() => {
@@ -426,13 +479,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           await db.from("chat_messages").insert({ id: crypto.randomUUID(), thread_id: threadId, sender_id: authData.user.id, is_admin: true, body: `Your booking #${id} has been approved.\\n\\nPayment instructions:\\n${instructions}` });
         }
       });
-      setBookings((list) =>
-        list.map((b) =>
-          b.id === id
-            ? { ...b, status: "approved", paymentInstructions: instructions }
-            : b,
-        ),
-      );
+      // The remote update above is authoritative; local state updates only after it succeeds.
+      setBookings((list) => list.map((b) => b.id === id ? { ...b, status: "approved", paymentInstructions: instructions } : b));
       setBookings((list) => {
         const b = list.find((x) => x.id === id);
         if (b) {
