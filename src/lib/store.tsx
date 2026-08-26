@@ -454,10 +454,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         emergency_name: input.traveler.emergencyName,
         emergency_phone: input.traveler.emergencyPhone,
         special_requests: input.traveler.notes,
+        // Keep compatibility with the original bookings table columns.
+        destination: input.itemType === "flight" ? (item as Flight).arrival_city : (item as Destination).name,
+        travel_date: input.traveler.checkIn || null,
+        travelers: input.passengers,
+        notes: input.traveler.notes || null,
       });
       if (error) {
-        console.error("[v0] Booking submission failed", error);
-        notify("Could not create booking. Please check your details and try again.", "error");
+        console.error("[v0] Booking submission failed", { message: error.message, details: error.details, hint: error.hint, code: error.code });
+        notify(error.message?.toLowerCase().includes("schema") ? "Booking service is being updated. Please try again shortly." : "Could not create booking. Please check your details and try again.", "error");
         return null;
       }
       setBookings((list) => [booking, ...list]);
