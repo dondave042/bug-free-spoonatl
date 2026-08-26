@@ -225,7 +225,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!mediaResult.error && mediaResult.data) setMedia(mediaResult.data.map((m) => ({ id: m.id, url: m.file_url, type: m.file_type === "video" ? "video" : "photo", title: m.file_name ?? "", source: m.bucket })));
     };
     void syncAdminData();
-    return () => { active = false; };
+    const bookingChannel = db
+      .channel("admin-booking-inbox")
+      .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, () => {
+        void syncAdminData();
+      })
+      .subscribe();
+    return () => {
+      active = false;
+      void db.removeChannel(bookingChannel);
+    };
   }, [session]);
 
   useEffect(() => {
@@ -446,8 +455,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         emergency_phone: input.traveler.emergencyPhone,
         special_requests: input.traveler.notes,
       });
-      if (error) { notify(`Could not create booking: ${error.message}`, "error"); return null; }
+      if (error) {
+        console.error("[v0] Booking submission failed", error);
+        notify("Could not create booking. Please check your details and try again.", "error");
+        return null;
+      }
       setBookings((list) => [booking, ...list]);
+      notify("Booking submitted for admin approval");
       return booking;
     },
     [user, flights, destinations, notify],
