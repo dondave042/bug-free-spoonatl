@@ -11,8 +11,8 @@ import { Gallery } from "./pages/Gallery";
 import { Login } from "./pages/Login";
 import { Profile } from "./pages/Profile";
 import { Chat } from "./pages/Chat";
-import { UserDashboard } from "./pages/UserDashboard";
-import { AdminDashboard } from "./pages/AdminDashboard";
+import { NewUserDashboard } from "./pages/NewUserDashboard";
+import { NewAdminDashboard } from "./pages/NewAdminDashboard";
 
 function Toasts({ toasts }: { toasts: { id: number; msg: string; kind: "ok" | "error" }[] }) {
   return (
@@ -73,7 +73,7 @@ function AppContent() {
             path="/user/dashboard"
             element={
               <ProtectedRoute>
-                <UserDashboard />
+                <NewUserDashboard />
               </ProtectedRoute>
             }
           />
@@ -81,7 +81,7 @@ function AppContent() {
             path="/admin/dashboard"
             element={
               <ProtectedRoute requireAdmin>
-                <AdminDashboard />
+                <NewAdminDashboard />
               </ProtectedRoute>
             }
           />
