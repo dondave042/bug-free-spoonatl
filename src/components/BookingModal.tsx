@@ -94,7 +94,6 @@ export function BookingModal({
         traveler,
       });
       if (b) setDoneId(b.id);
-      else notify("Could not create booking", "error");
     } catch (err) {
       notify(
         `Booking error: ${err instanceof Error ? err.message : "Unknown"}`,

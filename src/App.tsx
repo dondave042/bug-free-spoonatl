@@ -91,13 +91,19 @@ function AppContent() {
   );
 }
 
+function AppShell() {
+  return (
+    <AppProvider>
+      <AppContent />
+      <Analytics />
+    </AppProvider>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <AppProvider>
-        <AppContent />
-        <Analytics />
-      </AppProvider>
+      <AppShell />
     </BrowserRouter>
   );
 }
