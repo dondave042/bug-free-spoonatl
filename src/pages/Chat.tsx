@@ -6,7 +6,7 @@ import { useStore } from "../lib/store";
 import { formatDateTime, readFileAsDataUrl } from "../lib/utils";
 
 export function Chat() {
-  const { user, threads, chatMedia, sendMessage, notify } = useStore();
+  const { user, threads, chatMedia, sendMessage, uploadReceipt, notify } = useStore();
   const [active, setActive] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
@@ -41,8 +41,9 @@ export function Chat() {
       return;
     }
     setUploading(true);
-    try {
-      setPreview(await readFileAsDataUrl(f));
+  try {
+  if (thread) await uploadReceipt(thread.bookingId, f);
+  setPreview(await readFileAsDataUrl(f));
     } catch (err) {
       notify(err instanceof Error ? err.message : "Upload failed", "error");
     } finally {

@@ -103,6 +103,21 @@ export interface Booking {
   bookedBy: string;
   status: BookingStatus;
   paymentInstructions: string;
+  paymentStatus: "unpaid" | "pending" | "paid" | "failed";
+  paymentAmount?: number;
+  paymentReference?: string;
+  paymentUpdatedAt?: number;
+}
+
+export interface BookingReceipt {
+  id: string;
+  bookingId: string;
+  uploaderId: string;
+  fileName: string;
+  mimeType: string;
+  fileSize?: number;
+  url?: string;
+  createdAt: number;
 }
 
 export interface ChatMessage {
