@@ -176,6 +176,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const db = supabase;
+    if (!db) return;
+    let active = true;
+    const loadCatalog = async () => {
+      const [destinationsResult, flightsResult, mediaResult] = await Promise.all([
+        db.from("destinations").select("*").order("updated_at", { ascending: false }),
+        db.from("flights").select("*").order("updated_at", { ascending: false }),
+        db.from("media").select("*").order("created_at", { ascending: false }),
+      ]);
+      if (!active) return;
+      if (!destinationsResult.error && destinationsResult.data?.length) setDestinations(destinationsResult.data as Destination[]);
+      if (!flightsResult.error && flightsResult.data?.length) setFlights(flightsResult.data as Flight[]);
+      if (!mediaResult.error && mediaResult.data?.length) setMedia(mediaResult.data.map((m) => ({ id: m.id, url: m.file_url, type: m.file_type === "video" ? "video" : "photo", title: m.title ?? m.file_name ?? "", source: m.bucket ?? "media" })));
+    };
+    void loadCatalog();
+    const catalogChannel = db.channel("public-catalog").on("postgres_changes", { event: "*", schema: "public", table: "destinations" }, () => void loadCatalog()).on("postgres_changes", { event: "*", schema: "public", table: "flights" }, () => void loadCatalog()).on("postgres_changes", { event: "*", schema: "public", table: "media" }, () => void loadCatalog()).subscribe();
+    return () => { active = false; void db.removeChannel(catalogChannel); };
+  }, []);
+
+  useEffect(() => {
+    const db = supabase;
     if (!db || !session) {
       return;
     }
@@ -364,42 +384,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const saveDestination = useCallback(
     (d: Destination) => {
-      setDestinations((list) =>
-        list.some((x) => x.id === d.id)
-          ? list.map((x) => (x.id === d.id ? d : x))
-          : [...list, d],
-      );
-      notify("Destination saved");
+      if (!isAdmin || !supabase) return notify("Admin access required", "error");
+      void supabase.from("destinations").upsert({ id: d.id, name: d.name, location: d.location, description: d.description, price: d.price, rating: d.rating, reviews: d.reviews, image: d.image, updated_at: new Date().toISOString() }).then(({ error }) => { if (error) notify("Could not save package", "error"); else { setDestinations((list) => list.some((x) => x.id === d.id) ? list.map((x) => x.id === d.id ? d : x) : [d, ...list]); notify("Package published"); } });
     },
-    [notify],
+    [isAdmin, notify],
   );
 
   const deleteDestination = useCallback(
     (id: number) => {
-      setDestinations((list) => list.filter((x) => x.id !== id));
-      notify("Destination deleted");
+      if (!isAdmin || !supabase) return notify("Admin access required", "error");
+      void supabase.from("destinations").delete().eq("id", id).then(({ error }) => { if (error) notify("Could not delete package", "error"); else { setDestinations((list) => list.filter((x) => x.id !== id)); notify("Package deleted"); } });
     },
-    [notify],
+    [isAdmin, notify],
   );
 
   const saveFlight = useCallback(
     (f: Flight) => {
-      setFlights((list) =>
-        list.some((x) => x.id === f.id)
-          ? list.map((x) => (x.id === f.id ? f : x))
-          : [...list, f],
-      );
-      notify("Flight saved");
+      if (!isAdmin || !supabase) return notify("Admin access required", "error");
+      void supabase.from("flights").upsert({ ...f, updated_at: new Date().toISOString() }).then(({ error }) => { if (error) notify("Could not save flight", "error"); else { setFlights((list) => list.some((x) => x.id === f.id) ? list.map((x) => x.id === f.id ? f : x) : [f, ...list]); notify("Flight published"); } });
     },
-    [notify],
+    [isAdmin, notify],
   );
 
   const deleteFlight = useCallback(
     (id: number) => {
-      setFlights((list) => list.filter((x) => x.id !== id));
-      notify("Flight deleted");
+      if (!isAdmin || !supabase) return notify("Admin access required", "error");
+      void supabase.from("flights").delete().eq("id", id).then(({ error }) => { if (error) notify("Could not delete flight", "error"); else { setFlights((list) => list.filter((x) => x.id !== id)); notify("Flight deleted"); } });
     },
-    [notify],
+    [isAdmin, notify],
   );
 
   const addMedia = useCallback((items: MediaItem[]) => {
@@ -408,10 +420,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteMedia = useCallback(
     (id: string) => {
-      setMedia((list) => list.filter((x) => x.id !== id));
-      notify("Media deleted");
+      if (!isAdmin || !supabase) return notify("Admin access required", "error");
+      void supabase.from("media").delete().eq("id", id).then(async ({ error }) => {
+        if (error) return notify("Could not delete media", "error");
+        setMedia((list) => list.filter((x) => x.id !== id));
+        notify("Media deleted");
+      });
     },
-    [notify],
+    [isAdmin, notify],
   );
 
   const createBooking = useCallback(
