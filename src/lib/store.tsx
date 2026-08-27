@@ -179,11 +179,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const { data: authData } = await db.auth.getUser();
       const authUser = authData.user;
       if (!authUser) return;
-      const { data: adminResult, error: adminError } = await db.rpc("is_admin");
-      const { data: ownProfile } = adminError
-        ? await db.from("profiles").select("role").eq("id", authUser.id).maybeSingle()
-        : { data: null };
-      const adminUser = adminError ? ownProfile?.role === "admin" : adminResult === true;
+      const [{ data: adminResult }, { data: ownProfile }] = await Promise.all([
+        db.rpc("is_admin"),
+        db.from("profiles").select("role").eq("id", authUser.id).maybeSingle(),
+      ]);
+      // Support both the RPC and the profile role so a stale/misconfigured RPC
+      // cannot hide valid admin bookings from the dashboard.
+      const adminUser = adminResult === true || ownProfile?.role === "admin";
       if (!adminUser) {
         setRemoteAdmin(false);
         setAdminCheckComplete(true);
@@ -212,7 +214,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         passengers: row.passengers,
         total: Number(row.total_price),
         paymentMethod: row.payment_method,
-        traveler: { fullName: row.full_name, dob: row.dob ?? "", phone: row.phone ?? "", passport: row.passport ?? "", country: row.country ?? "", state: row.state ?? "", address: "", reason: row.reason ?? "", emergencyName: row.emergency_name ?? "", emergencyPhone: row.emergency_phone ?? "", notes: row.special_requests ?? "", checkIn: "", checkOut: "" },
+        traveler: { fullName: row.full_name, dob: row.dob ?? "", phone: row.phone ?? "", passport: row.passport ?? "", country: row.country ?? "", state: row.state ?? "", address: row.address ?? "", reason: row.reason ?? "", emergencyName: row.emergency_name ?? "", emergencyPhone: row.emergency_phone ?? "", notes: row.special_requests ?? "", checkIn: "", checkOut: "" },
         userEmail: row.user_id,
         bookedBy: row.full_name,
         status: row.status,
@@ -464,7 +466,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
       if (error) {
         console.error("[v0] Booking submission failed", { message: error.message, details: error.details, hint: error.hint, code: error.code });
-        notify(error.message?.toLowerCase().includes("schema") ? "Booking service is being updated. Please try again shortly." : "Could not create booking. Please check your details and try again.", "error");
+        const code = error.code ?? "";
+        notify(code === "42501" ? "Please sign in again before submitting your booking." : code === "23514" ? "Please check the number of travelers and booking dates." : error.message?.toLowerCase().includes("schema") ? "Booking service is being updated. Please try again shortly." : "Could not create booking. Please check your details and try again.", "error");
         return null;
       }
       setBookings((list) => [booking, ...list]);
