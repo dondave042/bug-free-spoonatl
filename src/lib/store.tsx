@@ -456,7 +456,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         special_requests: input.traveler.notes,
         // Keep compatibility with the original bookings table columns.
         destination: input.itemType === "flight" ? (item as Flight).arrival_city : (item as Destination).name,
-        travel_date: input.traveler.checkIn || null,
+        // The legacy table requires a travel date; use check-in when supplied,
+        // otherwise persist today so every valid booking can be inserted.
+        travel_date: input.traveler.checkIn || new Date().toISOString().slice(0, 10),
         travelers: input.passengers,
         notes: input.traveler.notes || null,
       });
