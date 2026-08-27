@@ -73,6 +73,10 @@ function bookingFromRow(row: Record<string, any>): Booking {
     status: row.status ?? "pending",
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
     paymentInstructions: row.payment_instructions ?? "",
+    paymentStatus: row.payment_status ?? "unpaid",
+    paymentAmount: row.payment_amount == null ? undefined : Number(row.payment_amount),
+    paymentReference: row.payment_reference ?? "",
+    paymentUpdatedAt: row.payment_updated_at ? new Date(row.payment_updated_at).getTime() : undefined,
   };
 }
 
@@ -107,6 +111,7 @@ interface Store {
     traveler: TravelerDetails;
   }) => Promise<Booking | null>;
   approveBooking: (id: string, instructions: string) => void;
+  updateBookingPayment: (id: string, input: { instructions: string; amount: number; reference: string; status: "unpaid" | "pending" | "paid" | "failed" }) => Promise<boolean>;
   rejectBooking: (id: string, note?: string) => void;
   threads: ChatThread[];
   chatMedia: Record<string, string>;
@@ -116,6 +121,7 @@ interface Store {
     text: string,
     imageDataUrl?: string,
   ) => void;
+  uploadReceipt: (bookingId: string, file: File) => Promise<boolean>;
   tripRequests: TripRequest[];
   myTripRequests: TripRequest[];
   createTripRequest: (input: {
@@ -422,7 +428,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!user || !supabase) return null;
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) return null;
-      const booking = { ...input, id: crypto.randomUUID(), createdAt: Date.now(), userEmail: user.email, bookedBy: user.name, status: "pending" as const, paymentInstructions: "" };
+      const booking: Booking = { ...input, id: crypto.randomUUID(), createdAt: Date.now(), userEmail: user.email, bookedBy: user.name, status: "pending", paymentInstructions: "", paymentStatus: "unpaid" };
       if (!Number.isInteger(input.passengers) || input.passengers < 1 || input.passengers > 20) {
         notify("Please enter between 1 and 20 travelers", "error");
         return null;
@@ -541,6 +547,17 @@ Reply here once payment is sent and we will confirm your reservation.`,
     [isAdmin, notify],
   );
 
+  const updateBookingPayment = useCallback(async (id: string, input: { instructions: string; amount: number; reference: string; status: "unpaid" | "pending" | "paid" | "failed" }) => {
+    if (!isAdmin || !supabase) return false;
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) return false;
+    const { error } = await supabase.from("bookings").update({ payment_instructions: input.instructions, payment_amount: input.amount, payment_reference: input.reference, payment_status: input.status, payment_updated_at: new Date().toISOString(), payment_updated_by: authData.user.id }).eq("id", id);
+    if (error) { notify("Could not save payment details", "error"); return false; }
+    setBookings((list) => list.map((b) => b.id === id ? { ...b, paymentInstructions: input.instructions, paymentAmount: input.amount, paymentReference: input.reference, paymentStatus: input.status, paymentUpdatedAt: Date.now() } : b));
+    notify("Payment details saved and sent to traveler");
+    return true;
+  }, [isAdmin, notify]);
+
   const rejectBooking = useCallback(
     (id: string, note?: string) => {
       if (!isAdmin) {
@@ -600,6 +617,18 @@ Reply here once payment is sent and we will confirm your reservation.`,
     },
     [],
   );
+
+  const uploadReceipt = useCallback(async (bookingId: string, file: File) => {
+    if (!supabase || !user || !file.type.startsWith("image/") || file.size > 10 * 1024 * 1024) { notify("Choose an image smaller than 10 MB", "error"); return false; }
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) return false;
+    const path = `${authData.user.id}/${bookingId}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+    const upload = await supabase.storage.from("booking-receipts").upload(path, file, { contentType: file.type, upsert: false });
+    if (upload.error) { notify("Could not upload receipt", "error"); return false; }
+    const { error } = await supabase.from("booking_receipts").insert({ booking_id: bookingId, uploader_id: authData.user.id, storage_path: path, file_name: file.name, mime_type: file.type, file_size: file.size });
+    if (error) { await supabase.storage.from("booking-receipts").remove([path]); notify("Could not save receipt", "error"); return false; }
+    notify("Receipt uploaded"); return true;
+  }, [notify, user]);
 
   const createTripRequest = useCallback(
     (input: {
@@ -716,10 +745,12 @@ const value: Store = {
     myBookings,
     createBooking,
     approveBooking,
+    updateBookingPayment,
     rejectBooking,
     threads,
     chatMedia,
     sendMessage,
+    uploadReceipt,
     tripRequests: requests,
     myTripRequests,
     createTripRequest,
