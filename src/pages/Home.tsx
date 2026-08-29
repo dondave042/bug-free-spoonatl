@@ -8,7 +8,6 @@ import {
   Mail,
   MapPin,
   Minus,
-  Phone,
   Plane,
   Plus,
   Star,
@@ -20,10 +19,9 @@ import { SectionTitle } from "../components/ui";
 import { SOCIALS } from "../components/socials";
 import { useStore } from "../lib/store";
 import {
-  CONTACT_EMAIL,
-  CONTACT_OFFICE,
-  CONTACT_PHONE,
-  EXCURSIONS,
+    CONTACT_EMAIL,
+    CONTACT_OFFICE,
+    EXCURSIONS,
   TESTIMONIALS,
 } from "../lib/data";
 import type { BookableItem, Flight, ItemType } from "../lib/types";
@@ -71,12 +69,6 @@ export function Home() {
               title: "View All Flights",
               sub: "Browse flight deals",
               to: "/bookings",
-            },
-            {
-              icon: Phone,
-              title: "Talk to an Expert",
-              sub: CONTACT_PHONE,
-              to: `tel:${CONTACT_PHONE.replace(/[^+0-9]/g, "")}`,
             },
           ].map((c) => (
             <Link
@@ -353,19 +345,12 @@ export function Home() {
                 value: CONTACT_EMAIL,
                 href: `mailto:${CONTACT_EMAIL}`,
               },
-              {
-                label: "Phone",
-                value: CONTACT_PHONE,
-                href: `tel:${CONTACT_PHONE.replace(/[^+0-9]/g, "")}`,
-              },
               { label: "Office", value: CONTACT_OFFICE, href: undefined },
             ].map((c) => (
               <div key={c.label} className="flex gap-4">
                 <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent">
                   {c.label === "Email" ? (
                     <Mail className="h-5 w-5" />
-                  ) : c.label === "Phone" ? (
-                    <Phone className="h-5 w-5" />
                   ) : (
                     <MapPin className="h-5 w-5" />
                   )}

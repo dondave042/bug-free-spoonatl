@@ -87,8 +87,8 @@ export function Footer() {
             </div>
           </div>
         </div>
-        <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-8 sm:flex-row">
-          <p className="text-xs text-white/60">
+        <div className="mt-12 grid gap-4 border-t border-white/10 pt-8 text-center sm:grid-cols-3 sm:items-center">
+          <p className="text-xs text-white/60 sm:text-left">
             © {year} ATL TRAVELS. All rights reserved.
           </p>
           <p className="flex items-center gap-1.5 text-xs text-white/60">
@@ -99,7 +99,7 @@ export function Footer() {
             type="button"
             onClick={() => setAdminOpen(true)}
             aria-haspopup="dialog"
-            className="flex min-h-10 cursor-pointer items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-bold text-white transition hover:border-accent hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary"
+            className="mx-auto flex min-h-10 cursor-pointer items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-bold text-white transition hover:border-accent hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary"
           >
             <Lock className="h-3.5 w-3.5" aria-hidden="true" />
             Admin Login
