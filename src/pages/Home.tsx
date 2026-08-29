@@ -353,11 +353,6 @@ export function Home() {
                 value: CONTACT_EMAIL,
                 href: `mailto:${CONTACT_EMAIL}`,
               },
-              {
-                label: "Phone",
-                value: CONTACT_PHONE,
-                href: `tel:${CONTACT_PHONE.replace(/[^+0-9]/g, "")}`,
-              },
               { label: "Office", value: CONTACT_OFFICE, href: undefined },
             ].map((c) => (
               <div key={c.label} className="flex gap-4">
