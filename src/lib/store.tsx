@@ -185,7 +185,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         db.from("media").select("*").order("created_at", { ascending: false }),
       ]);
       if (!active) return;
-      if (!destinationsResult.error && destinationsResult.data?.length) setDestinations(destinationsResult.data as Destination[]);
+      if (!destinationsResult.error && destinationsResult.data?.length) setDestinations(destinationsResult.data.map((row) => ({ ...row, media: Array.isArray(row.media) ? row.media : [] })) as Destination[]);
       if (!flightsResult.error && flightsResult.data?.length) setFlights(flightsResult.data as Flight[]);
       if (!mediaResult.error && mediaResult.data?.length) setMedia(mediaResult.data.map((m) => ({ id: m.id, url: m.file_url, type: m.file_type === "video" ? "video" : "photo", title: m.title ?? m.file_name ?? "", source: m.bucket ?? "media" })));
     };
@@ -248,7 +248,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         paymentInstructions: row.payment_instructions ?? "",
       } as Booking))));
       }
-      if (!destinationsResult.error && destinationsResult.data?.length) setDestinations(destinationsResult.data as Destination[]);
+      if (!destinationsResult.error && destinationsResult.data?.length) setDestinations(destinationsResult.data.map((row) => ({ ...row, media: Array.isArray(row.media) ? row.media : [] })) as Destination[]);
       if (!flightsResult.error && flightsResult.data?.length) setFlights(flightsResult.data as Flight[]);
       if (!mediaResult.error && mediaResult.data) setMedia(mediaResult.data.map((m) => ({ id: m.id, url: m.file_url, type: m.file_type === "video" ? "video" : "photo", title: m.file_name ?? "", source: m.bucket })));
     };
@@ -385,7 +385,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const saveDestination = useCallback(
     (d: Destination) => {
       if (!isAdmin || !supabase) return notify("Admin access required", "error");
-      void supabase.from("destinations").upsert({ id: d.id, name: d.name, location: d.location, description: d.description, price: d.price, rating: d.rating, reviews: d.reviews, image: d.image, updated_at: new Date().toISOString() }).then(({ error }) => { if (error) notify("Could not save package", "error"); else { setDestinations((list) => list.some((x) => x.id === d.id) ? list.map((x) => x.id === d.id ? d : x) : [d, ...list]); notify("Package published"); } });
+      void supabase.from("destinations").upsert({ id: d.id, name: d.name, location: d.location, description: d.description, price: d.price, rating: d.rating, reviews: d.reviews, image: d.image, media: d.media ?? [], updated_at: new Date().toISOString() }).then(({ error }) => { if (error) notify("Could not save package", "error"); else { setDestinations((list) => list.some((x) => x.id === d.id) ? list.map((x) => x.id === d.id ? d : x) : [d, ...list]); notify("Package published"); } });
     },
     [isAdmin, notify],
   );

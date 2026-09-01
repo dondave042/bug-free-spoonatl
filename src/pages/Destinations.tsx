@@ -74,11 +74,7 @@ export function Destinations() {
                 className="card-hover overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-lg shadow-slate-200/40"
               >
                 <div className="relative h-56 overflow-hidden">
-                  <img
-                    src={d.image}
-                    alt={d.name}
-                    className="h-full w-full object-cover"
-                  />
+                  {d.media?.[0]?.type === "video" ? <video src={d.media[0].url} aria-label={d.name} className="h-full w-full object-cover" controls muted /> : <img src={d.media?.[0]?.url || d.image} alt={d.name} className="h-full w-full object-cover" />}
                   <span className="absolute top-4 right-4 rounded-full bg-primary/85 px-3 py-1 text-xs font-bold text-white">
                     {money(d.price)}
                   </span>
