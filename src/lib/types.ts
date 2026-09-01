@@ -29,6 +29,7 @@ export interface Destination {
   rating: string;
   reviews: string;
   image: string;
+  media?: MediaItem[];
 }
 
 export interface Flight {
