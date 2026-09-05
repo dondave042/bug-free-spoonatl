@@ -411,10 +411,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const saveFlight = useCallback(
     async (f: Flight) => {
       if (!isAdmin || !supabase) { notify("Admin access required", "error"); return false; }
+      const departure = new Date(f.departure_date);
+      const arrival = new Date(f.arrival_date);
+      const price = Number(f.price);
+      const availableSeats = Number(f.available_seats);
+      if (!Number.isFinite(price) || !Number.isInteger(availableSeats) || availableSeats < 0 || Number.isNaN(departure.getTime()) || Number.isNaN(arrival.getTime())) { notify("Enter valid flight details", "error"); return false; }
       const id = f.id > 0 ? f.id : Math.max(0, ...flights.map((item) => item.id)) + 1;
-      const persisted = { ...f, id };
-      const payload = { ...persisted, price: Number(f.price), available_seats: Number(f.available_seats), departure_date: new Date(f.departure_date).toISOString(), arrival_date: new Date(f.arrival_date).toISOString(), updated_at: new Date().toISOString() };
-      if (!Number.isFinite(payload.price) || !Number.isInteger(payload.available_seats) || payload.available_seats < 0 || Number.isNaN(new Date(f.departure_date).getTime()) || Number.isNaN(new Date(f.arrival_date).getTime())) { notify("Enter valid flight details", "error"); return false; }
+      const persisted = { ...f, id, price, available_seats: availableSeats, departure_date: departure.toISOString(), arrival_date: arrival.toISOString() };
+      const payload = { ...persisted, updated_at: new Date().toISOString() };
       const { error } = await supabase.from("flights").upsert(payload);
       if (error) { notify("Could not save flight", "error"); return false; }
       setFlights((list) => list.some((x) => x.id === id) ? list.map((x) => x.id === id ? persisted : x) : [persisted, ...list]);
