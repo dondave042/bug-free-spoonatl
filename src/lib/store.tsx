@@ -92,10 +92,10 @@ interface Store {
   destinations: Destination[];
   flights: Flight[];
   media: MediaItem[];
-  saveDestination: (d: Destination) => void;
-  deleteDestination: (id: number) => void;
-  saveFlight: (f: Flight) => void;
-  deleteFlight: (id: number) => void;
+  saveDestination: (d: Destination) => Promise<boolean>;
+  deleteDestination: (id: number) => Promise<boolean>;
+  saveFlight: (f: Flight) => Promise<boolean>;
+  deleteFlight: (id: number) => Promise<boolean>;
   addMedia: (items: MediaItem[]) => void;
   deleteMedia: (id: string) => void;
   bookings: Booking[];
@@ -383,33 +383,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const saveDestination = useCallback(
-    (d: Destination) => {
-      if (!isAdmin || !supabase) return notify("Admin access required", "error");
-      void supabase.from("destinations").upsert({ id: d.id, name: d.name, location: d.location, description: d.description, price: d.price, rating: d.rating, reviews: d.reviews, image: d.image, media: d.media ?? [], updated_at: new Date().toISOString() }).then(({ error }) => { if (error) notify("Could not save package", "error"); else { setDestinations((list) => list.some((x) => x.id === d.id) ? list.map((x) => x.id === d.id ? d : x) : [d, ...list]); notify("Package published"); } });
+    async (d: Destination) => {
+      if (!isAdmin || !supabase) { notify("Admin access required", "error"); return false; }
+      const id = d.id > 0 ? d.id : Math.max(0, ...destinations.map((item) => item.id)) + 1;
+      const persisted = { ...d, id };
+      const { error } = await supabase.from("destinations").upsert({ id, name: d.name, location: d.location, description: d.description, price: d.price, rating: d.rating, reviews: d.reviews, image: d.image, media: d.media ?? [], updated_at: new Date().toISOString() });
+      if (error) { notify("Could not save package", "error"); return false; }
+      setDestinations((list) => list.some((x) => x.id === id) ? list.map((x) => x.id === id ? persisted : x) : [persisted, ...list]);
+      notify("Package published");
+      return true;
     },
-    [isAdmin, notify],
+    [destinations, isAdmin, notify],
   );
 
   const deleteDestination = useCallback(
-    (id: number) => {
-      if (!isAdmin || !supabase) return notify("Admin access required", "error");
-      void supabase.from("destinations").delete().eq("id", id).then(({ error }) => { if (error) notify("Could not delete package", "error"); else { setDestinations((list) => list.filter((x) => x.id !== id)); notify("Package deleted"); } });
+    async (id: number) => {
+      if (!isAdmin || !supabase) { notify("Admin access required", "error"); return false; }
+      const { error } = await supabase.from("destinations").delete().eq("id", id);
+      if (error) { notify("Could not delete package", "error"); return false; }
+      setDestinations((list) => list.filter((x) => x.id !== id));
+      notify("Package deleted");
+      return true;
     },
     [isAdmin, notify],
   );
 
   const saveFlight = useCallback(
-    (f: Flight) => {
-      if (!isAdmin || !supabase) return notify("Admin access required", "error");
-      void supabase.from("flights").upsert({ ...f, updated_at: new Date().toISOString() }).then(({ error }) => { if (error) notify("Could not save flight", "error"); else { setFlights((list) => list.some((x) => x.id === f.id) ? list.map((x) => x.id === f.id ? f : x) : [f, ...list]); notify("Flight published"); } });
+    async (f: Flight) => {
+      if (!isAdmin || !supabase) { notify("Admin access required", "error"); return false; }
+      const id = f.id > 0 ? f.id : Math.max(0, ...flights.map((item) => item.id)) + 1;
+      const persisted = { ...f, id };
+      const payload = { ...persisted, price: Number(f.price), available_seats: Number(f.available_seats), departure_date: new Date(f.departure_date).toISOString(), arrival_date: new Date(f.arrival_date).toISOString(), updated_at: new Date().toISOString() };
+      if (!Number.isFinite(payload.price) || !Number.isInteger(payload.available_seats) || payload.available_seats < 0 || Number.isNaN(new Date(f.departure_date).getTime()) || Number.isNaN(new Date(f.arrival_date).getTime())) { notify("Enter valid flight details", "error"); return false; }
+      const { error } = await supabase.from("flights").upsert(payload);
+      if (error) { notify("Could not save flight", "error"); return false; }
+      setFlights((list) => list.some((x) => x.id === id) ? list.map((x) => x.id === id ? persisted : x) : [persisted, ...list]);
+      notify("Flight published");
+      return true;
     },
-    [isAdmin, notify],
+    [flights, isAdmin, notify],
   );
 
   const deleteFlight = useCallback(
-    (id: number) => {
-      if (!isAdmin || !supabase) return notify("Admin access required", "error");
-      void supabase.from("flights").delete().eq("id", id).then(({ error }) => { if (error) notify("Could not delete flight", "error"); else { setFlights((list) => list.filter((x) => x.id !== id)); notify("Flight deleted"); } });
+    async (id: number) => {
+      if (!isAdmin || !supabase) { notify("Admin access required", "error"); return false; }
+      const { error } = await supabase.from("flights").delete().eq("id", id);
+      if (error) { notify("Could not delete flight", "error"); return false; }
+      setFlights((list) => list.filter((x) => x.id !== id));
+      notify("Flight deleted");
+      return true;
     },
     [isAdmin, notify],
   );
