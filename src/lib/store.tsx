@@ -187,7 +187,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!active) return;
       if (!destinationsResult.error && destinationsResult.data?.length) setDestinations(destinationsResult.data.map((row) => ({ ...row, media: Array.isArray(row.media) ? row.media : [] })) as Destination[]);
       if (!flightsResult.error && flightsResult.data?.length) setFlights(flightsResult.data as Flight[]);
-      if (!mediaResult.error && mediaResult.data?.length) setMedia(mediaResult.data.map((m) => ({ id: m.id, url: m.file_url, type: m.file_type === "video" ? "video" : "photo", title: m.title ?? m.file_name ?? "", source: m.bucket ?? "media" })));
+      if (!mediaResult.error && mediaResult.data?.length) setMedia(mediaResult.data.map((m) => ({ id: m.id, url: m.file_url, type: m.file_type === "video" ? "video" : "photo", title: m.title ?? m.file_name ?? "", source: m.bucket ?? "media", storagePath: m.storage_path ?? undefined })));
     };
     void loadCatalog();
     const catalogChannel = db.channel("public-catalog").on("postgres_changes", { event: "*", schema: "public", table: "destinations" }, () => void loadCatalog()).on("postgres_changes", { event: "*", schema: "public", table: "flights" }, () => void loadCatalog()).on("postgres_changes", { event: "*", schema: "public", table: "media" }, () => void loadCatalog()).subscribe();
@@ -250,7 +250,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       if (!destinationsResult.error && destinationsResult.data?.length) setDestinations(destinationsResult.data.map((row) => ({ ...row, media: Array.isArray(row.media) ? row.media : [] })) as Destination[]);
       if (!flightsResult.error && flightsResult.data?.length) setFlights(flightsResult.data as Flight[]);
-      if (!mediaResult.error && mediaResult.data) setMedia(mediaResult.data.map((m) => ({ id: m.id, url: m.file_url, type: m.file_type === "video" ? "video" : "photo", title: m.file_name ?? "", source: m.bucket })));
+      if (!mediaResult.error && mediaResult.data) setMedia(mediaResult.data.map((m) => ({ id: m.id, url: m.file_url, type: m.file_type === "video" ? "video" : "photo", title: m.file_name ?? "", source: m.bucket, storagePath: m.storage_path ?? undefined })));
     };
     void syncAdminData();
     const bookingChannel = db
@@ -445,15 +445,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const deleteMedia = useCallback(
-    (id: string) => {
+    async (id: string) => {
       if (!isAdmin || !supabase) return notify("Admin access required", "error");
-      void supabase.from("media").delete().eq("id", id).then(async ({ error }) => {
-        if (error) return notify("Could not delete media", "error");
-        setMedia((list) => list.filter((x) => x.id !== id));
-        notify("Media deleted");
-      });
+      const item = media.find((entry) => entry.id === id);
+      const { error } = await supabase.from("media").delete().eq("id", id);
+      if (error) return notify("Could not delete media", "error");
+      if (item?.storagePath) await supabase.storage.from("media").remove([item.storagePath]);
+      setMedia((list) => list.filter((x) => x.id !== id));
+      notify("Media deleted");
     },
-    [isAdmin, notify],
+    [isAdmin, media, notify],
   );
 
   const createBooking = useCallback(

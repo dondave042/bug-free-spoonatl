@@ -36,11 +36,11 @@ export function NewAdminDashboard() {
       if (!(file.type.startsWith("image/") || file.type.startsWith("video/")) || file.size > 50 * 1024 * 1024) { notify("Use images or videos under 50 MB", "error"); return; }
     }
     for (const file of selectedFiles) {
-      const id = crypto.randomUUID(); const path = `${id}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-      const upload = await supabase.storage.from("media").upload(path, file, { contentType: file.type });
+      const id = crypto.randomUUID(); const path = `homepage/${id}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+      const upload = await supabase.storage.from("media").upload(path, file, { contentType: file.type, upsert: false });
       if (upload.error) { notify("Media upload failed", "error"); return; }
       const { data } = supabase.storage.from("media").getPublicUrl(path);
-      const row = { id, file_url: data.publicUrl, file_type: file.type.startsWith("video/") ? "video" : "photo", file_name: file.name, bucket: "media", title: file.name };
+      const row = { id, file_url: data.publicUrl, file_type: file.type.startsWith("video/") ? "video" : "photo", file_name: file.name, bucket: "media", storage_path: path, title: file.name };
       const result = await supabase.from("media").insert(row);
       if (result.error) { await supabase.storage.from("media").remove([path]); notify("Could not publish media", "error"); return; }
     }
@@ -51,9 +51,18 @@ export function NewAdminDashboard() {
     if (!supabase || packageFiles.length < 1 || packageFiles.length > 5) return notify("Select between 1 and 5 images or videos", "error");
     for (const file of packageFiles) if (!(file.type.startsWith("image/") || file.type.startsWith("video/")) || file.size > 50 * 1024 * 1024) return notify("Use images or videos under 50 MB", "error");
     const assets: MediaItem[] = [];
-    for (const file of packageFiles) { const id = crypto.randomUUID(); const path = `packages/${pkg.id || Date.now()}/${id}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`; const upload = await supabase.storage.from("media").upload(path, file, { contentType: file.type }); if (upload.error) return notify("Package media upload failed", "error"); const { data } = supabase.storage.from("media").getPublicUrl(path); assets.push({ id, url: data.publicUrl, type: file.type.startsWith("video/") ? "video" : "photo", title: file.name, source: "media" }); }
+    const uploadedPaths: string[] = [];
+    for (const file of packageFiles) {
+      const id = crypto.randomUUID(); const path = `packages/${pkg.id || id}/${id}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+      const upload = await supabase.storage.from("media").upload(path, file, { contentType: file.type, upsert: false });
+      if (upload.error) { if (uploadedPaths.length) await supabase.storage.from("media").remove(uploadedPaths); notify("Package media upload failed", "error"); return; }
+      uploadedPaths.push(path);
+      const { data } = supabase.storage.from("media").getPublicUrl(path);
+      assets.push({ id, url: data.publicUrl, type: file.type.startsWith("video/") ? "video" : "photo", title: file.name, source: "media", storagePath: path });
+    }
     const saved = await saveDestination({ ...pkg, id: pkg.id || 0, image: assets[0]?.url || pkg.image, media: assets });
     if (saved) { setPackageFiles([]); setPkg(emptyPackage); notify("Luxury package published with media"); }
+    else if (uploadedPaths.length) await supabase.storage.from("media").remove(uploadedPaths);
   };
   const nav = (next: typeof tab) => setTab(next);
   return <div className="min-h-screen bg-primary text-white"><header className="border-b border-white/10"><div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5"><div><p className="text-xs font-bold uppercase tracking-[.25em] text-accent">ATL Travels</p><h1 className="font-display mt-1 text-2xl font-bold">Operations desk</h1></div><div className="flex items-center gap-2"><Link to="/chat" className="rounded-full bg-white/10 px-4 py-2 text-sm font-bold"><MessageCircle className="mr-2 inline h-4 w-4" />Chat</Link><Link to="/" className="rounded-full bg-white/10 px-4 py-2 text-sm font-bold">View site</Link><button onClick={signOut} className="rounded-full bg-accent px-4 py-2 text-sm font-bold"><LogOut className="mr-2 inline h-4 w-4" />Sign out</button></div></div></header><main className="mx-auto max-w-7xl px-5 py-8"><div className="grid gap-4 sm:grid-cols-3"><Stat label="Needs review" value={pending.length} icon={Clock3} /><Stat label="Published packages" value={destinations.length} icon={CheckCircle2} /><Stat label="Published flights" value={flights.length} icon={Plane} /></div><nav className="mt-8 flex flex-wrap gap-2">{([["bookings","Bookings"],["packages","Luxury Packages"],["flights","Flight posts"],["media","Media gallery"]] as const).map(([key,label]) => <button key={key} onClick={() => nav(key)} className={`rounded-full px-4 py-2 text-sm font-bold ${tab === key ? "bg-accent text-primary" : "bg-white/10 text-white"}`}>{label}</button>)}</nav>{tab === "bookings" && <BookingPanel bookings={bookings} current={current} selected={selected} selectBooking={selectBooking} payment={payment} setPayment={setPayment} savePayment={savePayment} approveBooking={approveBooking} rejectBooking={rejectBooking} />}{tab === "packages" && <CatalogPanel title="Luxury Packages" items={destinations} draft={pkg} setDraft={setPkg} onSave={uploadPackageMedia} onDelete={deleteDestination} kind="package" packageFiles={packageFiles} setPackageFiles={setPackageFiles} />}{tab === "flights" && <CatalogPanel title="Flight posts" items={flights} draft={flight} setDraft={setFlight} onSave={async () => { const saved = await saveFlight({ ...flight, id: flight.id || 0 }); if (saved) setFlight(emptyFlight); }} onDelete={deleteFlight} kind="flight" />}{tab === "media" && <MediaPanel media={media} uploadMedia={uploadMedia} deleteMedia={deleteMedia} max={maxMedia} />}</main></div>;
