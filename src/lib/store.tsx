@@ -94,7 +94,7 @@ interface Store {
   media: MediaItem[];
   saveDestination: (d: Destination) => void;
   deleteDestination: (id: number) => void;
-  saveFlight: (f: Flight) => void;
+  saveFlight: (f: Flight) => Promise<boolean>;
   deleteFlight: (id: number) => void;
   addMedia: (items: MediaItem[]) => void;
   deleteMedia: (id: string) => void;
@@ -181,7 +181,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const loadCatalog = async () => {
       const [destinationsResult, flightsResult, mediaResult] = await Promise.all([
         db.from("destinations").select("*").order("updated_at", { ascending: false }),
-        db.from("flights").select("*").order("updated_at", { ascending: false }),
+        db.from("flights").select("*").order("created_at", { ascending: false }),
         db.from("media").select("*").order("created_at", { ascending: false }),
       ]);
       if (!active) return;
@@ -232,21 +232,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       if (!bookingsResult.error && bookingsResult.data) {
         setBookings(normalizeBookings(bookingsResult.data.map((row) => ({
-        id: row.id,
-        itemType: row.item_type,
-        itemId: row.item_type === "flight" ? row.flight_id : row.destination_id,
-        itemName: row.item_name,
-        unitPrice: Number(row.unit_price),
-        passengers: row.passengers,
-        total: Number(row.total_price),
-        paymentMethod: row.payment_method,
-        traveler: { fullName: row.full_name, dob: row.dob ?? "", phone: row.phone ?? "", passport: row.passport ?? "", country: row.country ?? "", state: row.state ?? "", address: row.address ?? "", reason: row.reason ?? "", emergencyName: row.emergency_name ?? "", emergencyPhone: row.emergency_phone ?? "", notes: row.special_requests ?? "", checkIn: "", checkOut: "" },
-        userEmail: row.user_id,
-        bookedBy: row.full_name,
-        status: row.status,
-        createdAt: new Date(row.created_at).getTime(),
-        paymentInstructions: row.payment_instructions ?? "",
-      } as Booking))));
+          id: row.id,
+          itemType: row.item_type,
+          itemId: row.item_type === "flight" ? row.flight_id : row.destination_id,
+          itemName: row.item_name,
+          unitPrice: Number(row.unit_price),
+          passengers: row.passengers,
+          total: Number(row.total_price),
+          paymentMethod: row.payment_method,
+          traveler: { fullName: row.full_name, dob: row.dob ?? "", phone: row.phone ?? "", passport: row.passport ?? "", country: row.country ?? "", state: row.state ?? "", address: row.address ?? "", reason: row.reason ?? "", emergencyName: row.emergency_name ?? "", emergencyPhone: row.emergency_phone ?? "", notes: row.special_requests ?? "", checkIn: "", checkOut: "" },
+          userEmail: row.user_id,
+          bookedBy: row.full_name,
+          status: row.status,
+          createdAt: new Date(row.created_at).getTime(),
+          paymentInstructions: row.payment_instructions ?? "",
+        } as Booking))));
       }
       if (!destinationsResult.error && destinationsResult.data?.length) setDestinations(destinationsResult.data.map((row) => ({ ...row, media: Array.isArray(row.media) ? row.media : [] })) as Destination[]);
       if (!flightsResult.error && flightsResult.data?.length) setFlights(flightsResult.data as Flight[]);
@@ -399,11 +399,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const saveFlight = useCallback(
-    (f: Flight) => {
-      if (!isAdmin || !supabase) return notify("Admin access required", "error");
-      void supabase.from("flights").upsert({ ...f, updated_at: new Date().toISOString() }).then(({ error }) => { if (error) notify("Could not save flight", "error"); else { setFlights((list) => list.some((x) => x.id === f.id) ? list.map((x) => x.id === f.id ? f : x) : [f, ...list]); notify("Flight published"); } });
+    async (f: Flight) => {
+      if (!isAdmin || !supabase) { notify("Admin access required", "error"); return false; }
+      const isExisting = flights.some((flight) => flight.id === f.id);
+      const flightRow = isExisting ? f : { ...f, id: undefined };
+      const { data, error } = await supabase.from("flights").upsert(flightRow).select().single();
+      if (error || !data) { notify("Could not save flight", "error"); return false; }
+      const savedFlight = data as Flight;
+      setFlights((list) => isExisting ? list.map((x) => x.id === f.id ? savedFlight : x) : [savedFlight, ...list]);
+      notify("Flight published");
+      return true;
     },
-    [isAdmin, notify],
+    [flights, isAdmin, notify],
   );
 
   const deleteFlight = useCallback(
@@ -532,28 +539,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ts.some((t) => t.bookingId === id)
               ? ts
               : [
-                  {
-                    id: rid(),
-                    bookingId: id,
-                    userEmail: b.userEmail,
-                    userName: b.bookedBy,
-      createdAt: 0,
-                    messages: [
-                      {
-                        id: rid(),
-                        from: "admin",
-                        text: `Your booking #${id} for "${b.itemName}" has been approved. Total due: ${money(b.total)} via ${getPaymentMethod(b.paymentMethod).name}.
+                {
+                  id: rid(),
+                  bookingId: id,
+                  userEmail: b.userEmail,
+                  userName: b.bookedBy,
+                  createdAt: 0,
+                  messages: [
+                    {
+                      id: rid(),
+                      from: "admin",
+                      text: `Your booking #${id} for "${b.itemName}" has been approved. Total due: ${money(b.total)} via ${getPaymentMethod(b.paymentMethod).name}.
 
 Payment instructions:
 ${instructions}
 
 Reply here once payment is sent and we will confirm your reservation.`,
-                        at: Date.now(),
-                      },
-                    ],
-                  },
-                  ...ts,
-                ],
+                      at: Date.now(),
+                    },
+                  ],
+                },
+                ...ts,
+              ],
           );
         }
         return list;
@@ -588,10 +595,10 @@ Reply here once payment is sent and we will confirm your reservation.`,
         list.map((b) =>
           b.id === id
             ? {
-                ...b,
-                status: "rejected",
-                paymentInstructions: note || "Booking rejected by admin",
-              }
+              ...b,
+              status: "rejected",
+              paymentInstructions: note || "Booking rejected by admin",
+            }
             : b,
         ),
       );
@@ -617,9 +624,9 @@ Reply here once payment is sent and we will confirm your reservation.`,
         list.map((t) =>
           t.id === threadId
             ? {
-                ...t,
-                messages: [...t.messages, { id: messageId, from, text, ...(imageId ? { imageId } : {}), at: sentAt }],
-              }
+              ...t,
+              messages: [...t.messages, { id: messageId, from, text, ...(imageId ? { imageId } : {}), at: sentAt }],
+            }
             : t,
         ),
       );
@@ -710,10 +717,10 @@ Reply here once payment is sent and we will confirm your reservation.`,
         list.map((r) =>
           r.id === id
             ? {
-                ...r,
-                status: "rejected",
-                adminNote: note || "Not available for the selected dates.",
-              }
+              ...r,
+              status: "rejected",
+              adminNote: note || "Not available for the selected dates.",
+            }
             : r,
         ),
       );
@@ -739,12 +746,12 @@ Reply here once payment is sent and we will confirm your reservation.`,
     notify("Demo data reset");
   }, [notify]);
 
-const value: Store = {
-  user,
-  isAdmin,
-  adminCheckComplete,
-  users,
-  signIn,
+  const value: Store = {
+    user,
+    isAdmin,
+    adminCheckComplete,
+    users,
+    signIn,
     signUp,
     signOut,
     updateProfile,
