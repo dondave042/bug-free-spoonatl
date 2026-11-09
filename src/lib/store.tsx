@@ -1,27 +1,39 @@
-  const saveFlight = useCallback(
-    async (f: Flight) => {
-      if (!isAdmin || !supabase) { notify("Admin access required", "error"); return false; }
-      const isExisting = flights.some((flight) => flight.id === f.id);
-      const flightRow = {
-        airline: f.airline,
-        departure_city: f.departure_city,
-        arrival_city: f.arrival_city,
-        departure_date: f.departure_date || null,
-        arrival_date: f.arrival_date || null,
-        price: f.price,
-        available_seats: f.available_seats,
-        duration: f.duration,
-        stops: f.stops,
-      };
-      const query = isExisting
-        ? supabase.from("flights").update(flightRow).eq("id", f.id)
-        : supabase.from("flights").insert(flightRow);
-      const { data, error } = await query.select().single();
-      if (error || !data) { notify("Could not save flight", "error"); return false; }
-      const savedFlight = data as Flight;
-      setFlights((list) => isExisting ? list.map((x) => x.id === f.id ? savedFlight : x) : [savedFlight, ...list]);
-      notify("Flight published");
-      return true;
-    },
-    [flights, isAdmin, notify],
-  );
+let savedRow: Flight | null = null;
+
+if (isExisting) {
+  const { data, error } = await supabase
+    .from("flights")
+    .update(flightRow)
+    .eq("id", f.id)
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    notify(`Could not save flight: ${error.message}`, "error");
+    return false;
+  }
+  savedRow = data as Flight | null;
+}
+
+if (!savedRow) {
+  const { data, error } = await supabase
+    .from("flights")
+    .insert(flightRow)
+    .select()
+    .single();
+
+  if (error || !data) {
+    notify(`Could not save flight: ${error?.message ?? "No flight returned"}`, "error");
+    return false;
+  }
+  savedRow = data as Flight;
+}
+
+const savedFlight = savedRow;
+setFlights((list) =>
+  list.some((item) => item.id === f.id)
+    ? list.map((item) => (item.id === f.id ? savedFlight : item))
+    : [savedFlight, ...list],
+);
+notify("Flight published");
+return true;
