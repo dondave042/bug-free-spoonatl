@@ -1,18 +1,21 @@
-let savedRow: Flight | null = null;
-
 if (isExisting) {
   const { data, error } = await supabase
     .from("flights")
     .update(flightRow)
     .eq("id", f.id)
     .select()
-    .maybeSingle();
+    .single();
 
   if (error) {
-    notify(`Could not save flight: ${error.message}`, "error");
-    return false;
+    if (error.code === "PGRST116") {
+      // no row found -> insert instead
+    } else {
+      notify(`Could not save flight: ${error.message}`, "error");
+      return false;
+    }
+  } else {
+    savedRow = data as Flight;
   }
-  savedRow = data as Flight | null;
 }
 
 if (!savedRow) {
@@ -26,14 +29,6 @@ if (!savedRow) {
     notify(`Could not save flight: ${error?.message ?? "No flight returned"}`, "error");
     return false;
   }
+
   savedRow = data as Flight;
 }
-
-const savedFlight = savedRow;
-setFlights((list) =>
-  list.some((item) => item.id === f.id)
-    ? list.map((item) => (item.id === f.id ? savedFlight : item))
-    : [savedFlight, ...list],
-);
-notify("Flight published");
-return true;
