@@ -297,6 +297,7 @@ interface Store {
   destinations: Destination[];
   flights: Flight[];
   media: MediaItem[];
+  catalogLoading: boolean;
   saveDestination: (d: Destination) => Promise<boolean>;
   deleteDestination: (id: number) => Promise<boolean>;
   saveFlight: (f: Flight) => Promise<boolean>;
@@ -368,7 +369,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     { revalidateOnFocus: true },
   );
-  const { data: catalogSnapshot, mutate: refreshCatalog } = useSWR<CatalogSnapshot>(
+  const { data: catalogSnapshot, isLoading: catalogIsLoading, mutate: refreshCatalog } = useSWR<CatalogSnapshot>(
     neon ? "neon-public-catalog" : null,
     loadCatalogSnapshot,
     {
@@ -945,6 +946,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     destinations,
     flights,
     media,
+    catalogLoading: catalogIsLoading,
     saveDestination,
     deleteDestination,
     saveFlight,

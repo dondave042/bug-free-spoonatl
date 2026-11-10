@@ -10,7 +10,7 @@ import type { BookableItem, ItemType } from "../lib/types";
 import { money } from "../lib/utils";
 
 export function Bookings() {
-  const { destinations, flights, user, notify } = useStore();
+  const { destinations, flights, catalogLoading, user, notify } = useStore();
   const nav = useNavigate();
   const [params] = useSearchParams();
   const initial = params.get("search") ?? "";
@@ -101,7 +101,7 @@ export function Bookings() {
           flightList.length === 0 ? (
             <p className="py-16 text-center font-bold text-slate-400">
               {flights.length === 0
-                ? "Loading flights..."
+                ? catalogLoading ? "Loading flights…" : "No flight deals have been published yet."
                 : "No flights match your search."}
             </p>
           ) : (
@@ -127,7 +127,7 @@ export function Bookings() {
         ) : destList.length === 0 ? (
           <p className="py-16 text-center font-bold text-slate-400">
             {destinations.length === 0
-              ? "Loading destinations..."
+              ? catalogLoading ? "Loading destinations…" : "No packages have been published yet."
               : "No destinations match your search."}
           </p>
         ) : (
