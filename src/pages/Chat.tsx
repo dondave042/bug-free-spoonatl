@@ -6,7 +6,7 @@ import { useStore } from "../lib/store";
 import { formatDateTime, readFileAsDataUrl } from "../lib/utils";
 
 export function Chat() {
-  const { user, threads, chatMedia, sendMessage, uploadReceipt, notify } = useStore();
+  const { user, authCheckComplete, threads, chatMedia, sendMessage, uploadReceipt, notify } = useStore();
   const [active, setActive] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
@@ -22,6 +22,7 @@ export function Chat() {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [thread?.messages.length]);
 
+  if (!authCheckComplete) return <div className="grid min-h-screen place-items-center text-sm text-slate-500" role="status">Checking your session…</div>;
   if (!user) return <Navigate to="/login" replace />;
 
   const submit = (e: React.FormEvent) => {

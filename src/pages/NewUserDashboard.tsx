@@ -8,8 +8,9 @@ import { useStore } from "../lib/store";
 import { money } from "../lib/utils";
 
 export function NewUserDashboard() {
-  const { user, myBookings, signOut } = useStore();
+  const { user, authCheckComplete, myBookings, signOut } = useStore();
   const navigate = useNavigate();
+  if (!authCheckComplete) return <div className="grid min-h-screen place-items-center text-sm text-slate-500" role="status">Checking your session…</div>;
   if (!user) return <Navigate to="/login" replace />;
   const pending = myBookings.filter((booking) => booking.status === "pending").length;
   const approved = myBookings.filter((booking) => booking.status === "approved").length;

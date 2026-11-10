@@ -95,6 +95,15 @@ interface AccountSnapshot {
   isAdmin: boolean;
 }
 
+const EMPTY_ACCOUNT: AccountSnapshot = {
+  users: [],
+  bookings: [],
+  threads: [],
+  requests: [],
+  isAdmin: false,
+};
+const EMPTY_CATALOG: CatalogSnapshot = { destinations: [], flights: [], media: [] };
+
 interface ProfileRow {
   id: string;
   email?: string | null;
@@ -277,6 +286,7 @@ async function loadAccountSnapshot(authUser: AuthIdentity): Promise<AccountSnaps
 
 interface Store {
   user: User | null;
+  authCheckComplete: boolean;
   isAdmin: boolean;
   adminCheckComplete: boolean;
   users: User[];
@@ -348,7 +358,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 3200);
   }, []);
 
-  const { data: authUser, mutate: refreshAuth } = useSWR<AuthIdentity | null>(
+  const { data: authUser, isLoading: authIsLoading, isValidating: authIsValidating, mutate: refreshAuth } = useSWR<AuthIdentity | null>(
     neon ? "neon-auth-session" : null,
     async () => {
       if (!neon) return null;
@@ -381,15 +391,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
   );
 
-  const users = accountSnapshot?.users ?? [];
-  const bookings = accountSnapshot?.bookings ?? [];
-  const threads = accountSnapshot?.threads ?? [];
-  const requests = accountSnapshot?.requests ?? [];
-  const destinations = catalogSnapshot?.destinations ?? [];
-  const flights = catalogSnapshot?.flights ?? [];
-  const media = catalogSnapshot?.media ?? [];
+  const accountData = accountSnapshot ?? EMPTY_ACCOUNT;
+  const catalogData = catalogSnapshot ?? EMPTY_CATALOG;
+  const users = accountData.users;
+  const bookings = accountData.bookings;
+  const threads = accountData.threads;
+  const requests = accountData.requests;
+  const destinations = catalogData.destinations;
+  const flights = catalogData.flights;
+  const media = catalogData.media;
   const isAdmin = accountSnapshot?.isAdmin ?? false;
-  const adminCheckComplete = !authUser || Boolean(accountSnapshot) || Boolean(accountError);
+  const authCheckComplete = !authIsLoading && !authIsValidating;
+  const adminCheckComplete = authCheckComplete && (!authUser || Boolean(accountSnapshot) || Boolean(accountError));
 
 
 
@@ -710,7 +723,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const messageText = `Your booking #${id} has been approved.\\n\\nPayment instructions:\\n${instructions}`;
+      const messageText = `Your booking #${id} has been approved.\n\nPayment instructions:\n${instructions}`;
       const { error: messageError } = await neon.from("chat_messages").insert({
         id: crypto.randomUUID(),
         thread_id: threadId,
@@ -725,7 +738,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       notify(`Booking #${id} approved — payment details sent to traveler`);
     },
-    [authUser, bookings, isAdmin, notify, refreshAccount, threads],
+    [authUser, isAdmin, notify, refreshAccount, threads],
   );
 
   const updateBookingPayment = useCallback(async (id: string, input: { instructions: string; amount: number; reference: string; status: "unpaid" | "pending" | "paid" | "failed" }) => {
@@ -776,7 +789,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const imageId = imageDataUrl ? rid() : undefined;
       if (imageDataUrl && imageId) setChatMedia((current) => ({ ...current, [imageId]: imageDataUrl }));
       const messageId = crypto.randomUUID();
-      const sentAt = Date.now();
       void neon.from("chat_messages").insert({
         id: messageId,
         thread_id: threadId,
@@ -854,7 +866,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notes: req.notes,
       }).then(({ error }) => {
         if (error) {
-          setRequests((list) => list.filter((item) => item.id !== req.id));
           notify("Could not save trip request", "error");
         } else {
           void refreshAccount();
@@ -923,6 +934,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value: Store = {
     user,
+    authCheckComplete,
     isAdmin,
     adminCheckComplete,
     users,
