@@ -3,19 +3,12 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
-import {
-  PAYMENT_IDS,
-  SEED_DESTINATIONS,
-  SEED_FLIGHTS,
-  SEED_MEDIA,
-  getPaymentMethod,
-} from "./data";
+import { PAYMENT_IDS } from "./data";
 import type {
   Booking,
   BookableItem,
@@ -32,8 +25,10 @@ import type {
   TripRequest,
   User,
 } from "./types";
-import { money, requestId, rid } from "./utils";
-import { supabase } from "./supabase";
+import { requestId, rid } from "./utils";
+import useSWR from "swr";
+import { neon } from "./neon";
+import { deleteBlob, uploadBlob } from "./uploads";
 
 function normalizeBookings(raw: unknown): Booking[] {
   if (!Array.isArray(raw)) return [];
@@ -80,6 +75,206 @@ function bookingFromRow(row: Record<string, any>): Booking {
   };
 }
 
+interface AuthIdentity {
+  id: string;
+  email: string;
+  name?: string | null;
+}
+
+interface CatalogSnapshot {
+  destinations: Destination[];
+  flights: Flight[];
+  media: MediaItem[];
+}
+
+interface AccountSnapshot {
+  users: User[];
+  bookings: Booking[];
+  threads: ChatThread[];
+  requests: TripRequest[];
+  isAdmin: boolean;
+}
+
+interface ProfileRow {
+  id: string;
+  email?: string | null;
+  full_name?: string | null;
+  phone?: string | null;
+  role?: string;
+  created_at?: string | null;
+}
+
+interface TripRequestRow {
+  id: string;
+  destination: string;
+  from_city: string;
+  travelers: number | string;
+  start_date: string;
+  end_date: string;
+  budget?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
+  status: TripRequest["status"];
+  quote?: number | string | null;
+  admin_note?: string | null;
+}
+
+function profileToUser(profile: ProfileRow): User {
+  return {
+    name: profile.full_name ?? profile.email?.split("@")[0] ?? "Traveler",
+    email: profile.email ?? "",
+    password: "",
+    phone: profile.phone ?? "",
+    createdAt: profile.created_at ? new Date(profile.created_at).getTime() : Date.now(),
+  };
+}
+
+function tripRequestFromRow(row: TripRequestRow, profile?: ProfileRow): TripRequest {
+  return {
+    id: row.id,
+    destination: row.destination,
+    fromCity: row.from_city,
+    travelers: Number(row.travelers),
+    checkIn: row.start_date,
+    checkOut: row.end_date,
+    budget: row.budget ?? "",
+    notes: row.notes ?? "",
+    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+    userEmail: profile?.email ?? "",
+    userName: profile?.full_name ?? "Traveler",
+    status: row.status,
+    quote: Number(row.quote ?? 0),
+    adminNote: row.admin_note ?? "",
+  };
+}
+
+async function loadCatalogSnapshot(): Promise<CatalogSnapshot> {
+  if (!neon) return { destinations: [], flights: [], media: [] };
+  const [destinationsResult, flightsResult, mediaResult] = await Promise.all([
+    neon.from("destinations").select("*").order("updated_at", { ascending: false }),
+    neon.from("flights").select("*").order("created_at", { ascending: false }),
+    neon.from("media").select("*").order("created_at", { ascending: false }),
+  ]);
+  const error = destinationsResult.error ?? flightsResult.error ?? mediaResult.error;
+  if (error) throw new Error(error.message);
+  return {
+    destinations: (destinationsResult.data ?? []).map((row) => ({
+      ...row,
+      id: Number(row.id),
+      price: Number(row.price),
+      media: Array.isArray(row.media) ? row.media : [],
+    })) as Destination[],
+    flights: (flightsResult.data ?? []).map((row) => ({
+      ...row,
+      id: Number(row.id),
+      price: Number(row.price),
+      available_seats: Number(row.available_seats),
+    })) as Flight[],
+    media: (mediaResult.data ?? []).map((row) => ({
+      id: row.id,
+      url: row.file_url,
+      type: row.file_type === "video" ? "video" : "photo",
+      title: row.title ?? row.file_name ?? "",
+      source: row.bucket ?? "media",
+    })),
+  };
+}
+
+async function loadAccountSnapshot(authUser: AuthIdentity): Promise<AccountSnapshot> {
+  if (!neon) throw new Error("Neon is not configured");
+
+  const profileColumns = "id,email,full_name,phone,role,created_at";
+  const ownProfileResult = await neon
+    .from("profiles")
+    .select(profileColumns)
+    .eq("id", authUser.id)
+    .maybeSingle();
+  if (ownProfileResult.error) throw new Error(ownProfileResult.error.message);
+
+  let ownProfile = ownProfileResult.data;
+  if (!ownProfile) {
+    const { error } = await neon.from("profiles").insert({
+      id: authUser.id,
+      email: authUser.email,
+      full_name: authUser.name ?? authUser.email.split("@")[0],
+      role: "user",
+    });
+    if (error && error.code !== "23505") throw new Error(error.message);
+    const refreshedProfile = await neon
+      .from("profiles")
+      .select(profileColumns)
+      .eq("id", authUser.id)
+      .maybeSingle();
+    if (refreshedProfile.error || !refreshedProfile.data) {
+      throw new Error(refreshedProfile.error?.message ?? "Could not load your profile");
+    }
+    ownProfile = refreshedProfile.data;
+  }
+
+  const { data: adminResult } = await neon.rpc("is_admin");
+  const isAdmin = adminResult === true || ownProfile.role === "admin";
+  const profilesResult = isAdmin
+    ? await neon.from("profiles").select(profileColumns).order("created_at", { ascending: false })
+    : { data: [ownProfile], error: null };
+  if (profilesResult.error) throw new Error(profilesResult.error.message);
+  const profileRows = profilesResult.data ?? [ownProfile];
+  const profileMap = new Map(profileRows.map((profile) => [profile.id, profile]));
+
+  const [bookingsResult, threadsResult, messagesResult, requestsResult] = await Promise.all([
+    isAdmin
+      ? neon.from("bookings").select("*").order("created_at", { ascending: false })
+      : neon.from("bookings").select("*").eq("user_id", authUser.id).order("created_at", { ascending: false }),
+    neon.from("chat_threads").select("id,booking_id,user_id,created_at").order("created_at", { ascending: true }),
+    neon.from("chat_messages").select("id,thread_id,sender_id,is_admin,body,created_at").order("created_at", { ascending: true }),
+    neon.from("trip_requests").select("*").order("created_at", { ascending: false }),
+  ]);
+  const dataError = bookingsResult.error ?? threadsResult.error ?? messagesResult.error ?? requestsResult.error;
+  if (dataError) throw new Error(dataError.message);
+
+  const bookings = normalizeBookings((bookingsResult.data ?? []).map((row) => {
+    const booking = bookingFromRow(row);
+    const owner = profileMap.get(row.user_id);
+    return {
+      ...booking,
+      userEmail: owner?.email ?? (row.user_id === authUser.id ? authUser.email : ""),
+      bookedBy: owner?.full_name ?? row.full_name ?? "Traveler",
+    };
+  }));
+  const messagesByThread = new Map<string, ChatMessage[]>();
+  for (const message of messagesResult.data ?? []) {
+    const messages = messagesByThread.get(message.thread_id) ?? [];
+    messages.push({
+      id: message.id,
+      from: message.is_admin ? "admin" : "user",
+      text: message.body,
+      at: new Date(message.created_at).getTime(),
+    });
+    messagesByThread.set(message.thread_id, messages);
+  }
+  const threads = (threadsResult.data ?? []).map((thread) => {
+    const owner = profileMap.get(thread.user_id);
+    return {
+      id: thread.id,
+      bookingId: thread.booking_id,
+      userEmail: owner?.email ?? "",
+      userName: owner?.full_name ?? "Traveler",
+      createdAt: new Date(thread.created_at).getTime(),
+      messages: messagesByThread.get(thread.id) ?? [],
+    };
+  });
+  const requests = (requestsResult.data ?? []).map((row) =>
+    tripRequestFromRow(row, profileMap.get(row.user_id)),
+  );
+
+  return {
+    users: profileRows.map(profileToUser),
+    bookings,
+    threads,
+    requests,
+    isAdmin,
+  };
+}
+
 interface Store {
   user: User | null;
   isAdmin: boolean;
@@ -88,16 +283,16 @@ interface Store {
   signIn: (email: string, password: string) => Promise<string | null>;
   signUp: (name: string, email: string, password: string) => Promise<string | null>;
   signOut: () => void;
-  updateProfile: (name: string, phone: string) => void;
+  updateProfile: (name: string, phone: string) => Promise<boolean>;
   destinations: Destination[];
   flights: Flight[];
   media: MediaItem[];
-  saveDestination: (d: Destination) => void;
-  deleteDestination: (id: number) => void;
+  saveDestination: (d: Destination) => Promise<boolean>;
+  deleteDestination: (id: number) => Promise<boolean>;
   saveFlight: (f: Flight) => Promise<boolean>;
   deleteFlight: (id: number) => void;
-  addMedia: (items: MediaItem[]) => void;
-  deleteMedia: (id: string) => void;
+  addMedia: (items: MediaItem[]) => Promise<boolean>;
+  deleteMedia: (id: string) => Promise<boolean>;
   bookings: Booking[];
   myBookings: Booking[];
   createBooking: (input: {
@@ -143,264 +338,181 @@ interface Store {
 const Ctx = createContext<Store | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [users, setUsers] = useState<User[]>([]);
-  const [session, setSession] = useState("");
-  const [remoteAdmin, setRemoteAdmin] = useState(false);
-  const [adminCheckComplete, setAdminCheckComplete] = useState(false);
-  const [destinations, setDestinations] = useState<Destination[]>(SEED_DESTINATIONS);
-  const [flights, setFlights] = useState<Flight[]>(SEED_FLIGHTS);
-  const [media, setMedia] = useState<MediaItem[]>(SEED_MEDIA);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [threads, setThreads] = useState<ChatThread[]>([]);
-  const [requests, setRequests] = useState<TripRequest[]>([]);
   const [chatMedia, setChatMedia] = useState<Record<string, string>>({});
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastSeq = useRef(0);
 
-  useEffect(() => {
-    if (!supabase) return;
-    let active = true;
-    void supabase.auth.getUser().then(({ data }) => {
-      if (active && data.user?.email) setSession(data.user.email);
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, authSession) => {
-      if (authSession?.user?.email) setSession(authSession.user.email);
-      else {
-        setSession("");
-        setRemoteAdmin(false);
-        setAdminCheckComplete(true);
-      }
-    });
-    return () => { active = false; listener.subscription.unsubscribe(); };
-  }, []);
-
-  useEffect(() => {
-    const db = supabase;
-    if (!db) return;
-    let active = true;
-    const loadCatalog = async () => {
-      const [destinationsResult, flightsResult, mediaResult] = await Promise.all([
-        db.from("destinations").select("*").order("updated_at", { ascending: false }),
-        db.from("flights").select("*").order("created_at", { ascending: false }),
-        db.from("media").select("*").order("created_at", { ascending: false }),
-      ]);
-      if (!active) return;
-      if (!destinationsResult.error && destinationsResult.data?.length) setDestinations(destinationsResult.data.map((row) => ({ ...row, media: Array.isArray(row.media) ? row.media : [] })) as Destination[]);
-      if (!flightsResult.error && flightsResult.data?.length) setFlights(flightsResult.data as Flight[]);
-      if (!mediaResult.error && mediaResult.data?.length) setMedia(mediaResult.data.map((m) => ({ id: m.id, url: m.file_url, type: m.file_type === "video" ? "video" : "photo", title: m.title ?? m.file_name ?? "", source: m.bucket ?? "media" })));
-    };
-    void loadCatalog();
-    const catalogChannel = db.channel("public-catalog").on("postgres_changes", { event: "*", schema: "public", table: "destinations" }, () => void loadCatalog()).on("postgres_changes", { event: "*", schema: "public", table: "flights" }, () => void loadCatalog()).on("postgres_changes", { event: "*", schema: "public", table: "media" }, () => void loadCatalog()).subscribe();
-    return () => { active = false; void db.removeChannel(catalogChannel); };
-  }, []);
-
-  useEffect(() => {
-    const db = supabase;
-    if (!db || !session) {
-      return;
-    }
-    let active = true;
-    queueMicrotask(() => setAdminCheckComplete(false));
-    const syncAdminData = async () => {
-      const { data: authData } = await db.auth.getUser();
-      const authUser = authData.user;
-      if (!authUser) return;
-      const [{ data: adminResult }, { data: ownProfile }] = await Promise.all([
-        db.rpc("is_admin"),
-        db.from("profiles").select("role").eq("id", authUser.id).maybeSingle(),
-      ]);
-      // Support both the RPC and the profile role so a stale/misconfigured RPC
-      // cannot hide valid admin bookings from the dashboard.
-      const adminUser = adminResult === true || ownProfile?.role === "admin";
-      if (!adminUser) {
-        setRemoteAdmin(false);
-        setAdminCheckComplete(true);
-        return;
-      }
-      setRemoteAdmin(true);
-      setAdminCheckComplete(true);
-      const [profilesResult, bookingsResult, destinationsResult, flightsResult, mediaResult] = await Promise.all([
-        db.from("profiles").select("id,email,full_name,phone,role,created_at").order("created_at", { ascending: false }),
-        db.from("bookings").select("*").order("created_at", { ascending: false }),
-        db.from("destinations").select("*").order("created_at", { ascending: false }),
-        db.from("flights").select("*").order("created_at", { ascending: false }),
-        db.from("media").select("*").order("created_at", { ascending: false }),
-      ]);
-      if (!active) return;
-      if (!profilesResult.error && profilesResult.data) {
-        setUsers(profilesResult.data.map((p) => ({ name: p.full_name ?? p.email?.split("@")[0] ?? "Traveler", email: p.email ?? "", password: "", phone: p.phone ?? "", createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now() })));
-      }
-      if (!bookingsResult.error && bookingsResult.data) {
-        setBookings(normalizeBookings(bookingsResult.data.map((row) => ({
-          id: row.id,
-          itemType: row.item_type,
-          itemId: row.item_type === "flight" ? row.flight_id : row.destination_id,
-          itemName: row.item_name,
-          unitPrice: Number(row.unit_price),
-          passengers: row.passengers,
-          total: Number(row.total_price),
-          paymentMethod: row.payment_method,
-          traveler: { fullName: row.full_name, dob: row.dob ?? "", phone: row.phone ?? "", passport: row.passport ?? "", country: row.country ?? "", state: row.state ?? "", address: row.address ?? "", reason: row.reason ?? "", emergencyName: row.emergency_name ?? "", emergencyPhone: row.emergency_phone ?? "", notes: row.special_requests ?? "", checkIn: "", checkOut: "" },
-          userEmail: row.user_id,
-          bookedBy: row.full_name,
-          status: row.status,
-          createdAt: new Date(row.created_at).getTime(),
-          paymentInstructions: row.payment_instructions ?? "",
-        } as Booking))));
-      }
-      if (!destinationsResult.error && destinationsResult.data?.length) setDestinations(destinationsResult.data.map((row) => ({ ...row, media: Array.isArray(row.media) ? row.media : [] })) as Destination[]);
-      if (!flightsResult.error && flightsResult.data?.length) setFlights(flightsResult.data as Flight[]);
-      if (!mediaResult.error && mediaResult.data) setMedia(mediaResult.data.map((m) => ({ id: m.id, url: m.file_url, type: m.file_type === "video" ? "video" : "photo", title: m.file_name ?? "", source: m.bucket })));
-    };
-    void syncAdminData();
-    const bookingChannel = db
-      .channel("admin-booking-inbox")
-      .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, () => {
-        void syncAdminData();
-      })
-      .subscribe();
-    return () => {
-      active = false;
-      void db.removeChannel(bookingChannel);
-    };
-  }, [session]);
-
-  useEffect(() => {
-    const db = supabase;
-    if (!db || !session) return;
-    let active = true;
-    const loadUserBookings = async () => {
-      const { data: authData } = await db.auth.getUser();
-      if (!authData.user) return;
-      const { data, error } = await db.from("bookings").select("*").eq("user_id", authData.user.id).order("created_at", { ascending: false });
-      if (!active || error || !data) return;
-      setBookings((current) => {
-        const adminBookings = current.filter((booking) => booking.userEmail !== authData.user.id);
-        return [...normalizeBookings(data.map(bookingFromRow)), ...adminBookings];
-      });
-    };
-    void loadUserBookings();
-    const channel = db.channel("user-bookings").on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, () => void loadUserBookings()).subscribe();
-    return () => { active = false; void db.removeChannel(channel); };
-  }, [session]);
-
-  useEffect(() => {
-    const db = supabase;
-    if (!db || !session) return;
-    let active = true;
-    const loadMessages = async () => {
-      const { data: authData } = await db.auth.getUser();
-      if (!authData.user || !active) return;
-      const [{ data: remoteThreads }, { data: remoteMessages }, { data: profiles }] = await Promise.all([
-        db.from("chat_threads").select("id,booking_id,user_id,created_at").order("created_at", { ascending: true }),
-        db.from("chat_messages").select("id,thread_id,sender_id,is_admin,body,created_at").order("created_at", { ascending: true }),
-        db.from("profiles").select("id,email,full_name"),
-      ]);
-      if (!active || !remoteThreads) return;
-      const profileMap = new Map((profiles ?? []).map((p) => [p.id, p]));
-      const mapped = remoteThreads.map((t) => ({
-        id: t.id,
-        bookingId: t.booking_id,
-        userEmail: profileMap.get(t.user_id)?.email ?? "",
-        userName: profileMap.get(t.user_id)?.full_name ?? "Traveler",
-        createdAt: new Date(t.created_at).getTime(),
-        messages: (remoteMessages ?? []).filter((m) => m.thread_id === t.id).map((m) => ({ id: m.id, from: m.is_admin ? "admin" : "user", text: m.body, at: new Date(m.created_at).getTime() } as ChatMessage)),
-      }));
-      setThreads((current) => {
-        const localOnly = current.filter((t) => !mapped.some((remote) => remote.id === t.id));
-        return [...mapped, ...localOnly];
-      });
-    };
-    void loadMessages();
-    const channel = db.channel("live-support-chat")
-      .on("postgres_changes", { event: "*", schema: "public", table: "chat_threads" }, () => void loadMessages())
-      .on("postgres_changes", { event: "*", schema: "public", table: "chat_messages" }, () => void loadMessages())
-      .subscribe();
-    return () => { active = false; void db.removeChannel(channel); };
-  }, [session]);
-
   const notify = useCallback((msg: string, kind: Toast["kind"] = "ok") => {
     const id = ++toastSeq.current;
-    setToasts((t) => [...t, { id, msg, kind }]);
-    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
+    setToasts((current) => [...current, { id, msg, kind }]);
+    window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 3200);
   }, []);
 
+  const { data: authUser, mutate: refreshAuth } = useSWR<AuthIdentity | null>(
+    neon ? "neon-auth-session" : null,
+    async () => {
+      if (!neon) return null;
+      const { data, error } = await neon.auth.getSession();
+      if (error || !data?.user) return null;
+      return { id: data.user.id, email: data.user.email, name: data.user.name };
+    },
+    { revalidateOnFocus: true },
+  );
+  const { data: catalogSnapshot, mutate: refreshCatalog } = useSWR<CatalogSnapshot>(
+    neon ? "neon-public-catalog" : null,
+    loadCatalogSnapshot,
+    {
+      refreshInterval: 30_000,
+      revalidateOnFocus: true,
+      onError: () => notify("Could not load travel catalog", "error"),
+    },
+  );
+  const {
+    data: accountSnapshot,
+    error: accountError,
+    mutate: refreshAccount,
+  } = useSWR<AccountSnapshot>(
+    neon && authUser?.id ? `neon-account:${authUser.id}` : null,
+    () => authUser ? loadAccountSnapshot(authUser) : Promise.reject(new Error("Not signed in")),
+    {
+      refreshInterval: 20_000,
+      revalidateOnFocus: true,
+      onError: () => notify("Could not load your account data", "error"),
+    },
+  );
+
+  const users = accountSnapshot?.users ?? [];
+  const bookings = accountSnapshot?.bookings ?? [];
+  const threads = accountSnapshot?.threads ?? [];
+  const requests = accountSnapshot?.requests ?? [];
+  const destinations = catalogSnapshot?.destinations ?? [];
+  const flights = catalogSnapshot?.flights ?? [];
+  const media = catalogSnapshot?.media ?? [];
+  const isAdmin = accountSnapshot?.isAdmin ?? false;
+  const adminCheckComplete = !authUser || Boolean(accountSnapshot) || Boolean(accountError);
+
+
+
+
   const user = useMemo(() => {
-    if (!session) return null;
-    return users.find((u) => u.email.toLowerCase() === session.toLowerCase()) ?? {
-      name: session.split("@")[0] || "Traveler",
-      email: session.toLowerCase(),
+    if (!authUser?.email) return null;
+    return users.find((profile) => profile.email.toLowerCase() === authUser.email.toLowerCase()) ?? {
+      name: authUser.name || authUser.email.split("@")[0] || "Traveler",
+      email: authUser.email.toLowerCase(),
       password: "",
       phone: "",
       createdAt: 0,
     };
-  }, [users, session]);
-  const isAdmin = remoteAdmin;
+  }, [authUser, users]);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    if (!supabase) return "Supabase is not configured";
-    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
-    if (error || !data.user) return "Invalid email or password";
-    setAdminCheckComplete(false);
-    setRemoteAdmin(false);
-    setSession(data.user.email ?? email.trim().toLowerCase());
+    if (!neon) return "Neon Auth is not configured";
+    const result = await neon.auth.signIn.email({ email: email.trim().toLowerCase(), password });
+    if (result.error) return "Invalid email or password";
+    await refreshAuth();
     return null;
-  }, []);
+  }, [refreshAuth]);
 
   const signUp = useCallback(async (name: string, email: string, password: string) => {
-    if (password.length < 6) return "Password is too weak. Please use a stronger password.";
-    if (!supabase) return "Supabase is not configured";
-    const { data, error } = await supabase.auth.signUp({
+    if (password.length < 8) return "Password must be at least 8 characters.";
+    if (!neon) return "Neon Auth is not configured";
+    const result = await neon.auth.signUp.email({
       email: email.trim().toLowerCase(),
       password,
-      options: {
-        data: { full_name: name.trim() },
-        emailRedirectTo: `${window.location.origin}/login`,
-      },
+      name: name.trim(),
     });
-    if (error) {
-      if (error.message.toLowerCase().includes("already") || error.message.toLowerCase().includes("registered")) return "This email is already registered. Please sign in instead.";
-      return error.message;
+    if (result.error) {
+      const message = result.error.message?.toLowerCase() ?? "";
+      if (message.includes("already") || message.includes("registered")) return "This email is already registered. Please sign in instead.";
+      return result.error.message ?? "Could not create account.";
     }
-    if (data.session?.user?.email) setSession(data.session.user.email);
+    await neon.auth.signOut();
+    await refreshAuth();
     return null;
-  }, []);
+  }, [refreshAuth]);
 
   const signOut = useCallback(() => {
-    void supabase?.auth.signOut();
-    setSession("");
-  }, []);
+    void (async () => {
+      await neon?.auth.signOut();
+      await refreshAuth();
+    })();
+  }, [refreshAuth]);
 
   const updateProfile = useCallback(
-    (name: string, phone: string) => {
-      if (!user) return;
-      setUsers((list) =>
-        list.map((u) => (u.email === user.email ? { ...u, name, phone } : u)),
-      );
+    async (name: string, phone: string) => {
+      if (!user || !authUser || !neon) return false;
+      const { error } = await neon.from("profiles").update({ full_name: name, phone }).eq("id", authUser.id);
+      if (error) {
+        notify("Could not save profile", "error");
+        return false;
+      }
+      void refreshAccount();
       notify("Profile saved");
+      return true;
     },
-    [user, notify],
+    [authUser, notify, refreshAccount, user],
   );
 
   const saveDestination = useCallback(
-    (d: Destination) => {
-      if (!isAdmin || !supabase) return notify("Admin access required", "error");
-      void supabase.from("destinations").upsert({ id: d.id, name: d.name, location: d.location, description: d.description, price: d.price, rating: d.rating, reviews: d.reviews, image: d.image, media: d.media ?? [], updated_at: new Date().toISOString() }).then(({ error }) => { if (error) notify("Could not save package", "error"); else { setDestinations((list) => list.some((x) => x.id === d.id) ? list.map((x) => x.id === d.id ? d : x) : [d, ...list]); notify("Package published"); } });
+    async (destination: Destination) => {
+      if (!isAdmin || !neon) {
+        notify("Admin access required", "error");
+        return false;
+      }
+      const { error } = await neon.from("destinations").upsert({
+        id: destination.id,
+        name: destination.name,
+        location: destination.location,
+        description: destination.description,
+        price: destination.price,
+        rating: destination.rating,
+        reviews: destination.reviews,
+        image: destination.image,
+        media: destination.media ?? [],
+        updated_at: new Date().toISOString(),
+      });
+      if (error) {
+        notify("Could not save package", "error");
+        return false;
+      }
+      void refreshCatalog();
+      notify("Package published");
+      return true;
     },
-    [isAdmin, notify],
+    [isAdmin, notify, refreshCatalog],
   );
 
   const deleteDestination = useCallback(
-    (id: number) => {
-      if (!isAdmin || !supabase) return notify("Admin access required", "error");
-      void supabase.from("destinations").delete().eq("id", id).then(({ error }) => { if (error) notify("Could not delete package", "error"); else { setDestinations((list) => list.filter((x) => x.id !== id)); notify("Package deleted"); } });
+    async (id: number) => {
+      if (!isAdmin || !neon) {
+        notify("Admin access required", "error");
+        return false;
+      }
+      const destination = destinations.find((item) => item.id === id);
+      const { error } = await neon.from("destinations").delete().eq("id", id);
+      if (error) {
+        notify("Could not delete package", "error");
+        return false;
+      }
+      const paths = (destination?.media ?? []).flatMap((item) => {
+        try {
+          const pathname = new URL(item.url, window.location.origin).searchParams.get("pathname");
+          return pathname ? [pathname] : [];
+        } catch {
+          return [];
+        }
+      });
+      await Promise.all(paths.map((pathname) => deleteBlob(pathname)));
+      void refreshCatalog();
+      notify("Package deleted");
+      return true;
     },
-    [isAdmin, notify],
+    [destinations, isAdmin, notify, refreshCatalog],
   );
 
   const saveFlight = useCallback(
     async (f: Flight) => {
-      if (!isAdmin || !supabase) { notify("Admin access required", "error"); return false; }
+      if (!isAdmin || !neon) { notify("Admin access required", "error"); return false; }
       const isExisting = flights.some((flight) => flight.id === f.id);
       const flightRow = {
         airline: f.airline,
@@ -414,40 +526,82 @@ export function AppProvider({ children }: { children: ReactNode }) {
         stops: f.stops,
       };
       const query = isExisting
-        ? supabase.from("flights").update(flightRow).eq("id", f.id)
-        : supabase.from("flights").insert(flightRow);
+        ? neon.from("flights").update(flightRow).eq("id", f.id)
+        : neon.from("flights").insert(flightRow);
       const { data, error } = await query.select().single();
       if (error || !data) { notify("Could not save flight", "error"); return false; }
-      const savedFlight = data as Flight;
-      setFlights((list) => isExisting ? list.map((x) => x.id === f.id ? savedFlight : x) : [savedFlight, ...list]);
+      void refreshCatalog();
       notify("Flight published");
       return true;
     },
-    [flights, isAdmin, notify],
+    [flights, isAdmin, notify, refreshCatalog],
   );
 
   const deleteFlight = useCallback(
     (id: number) => {
-      if (!isAdmin || !supabase) return notify("Admin access required", "error");
-      void supabase.from("flights").delete().eq("id", id).then(({ error }) => { if (error) notify("Could not delete flight", "error"); else { setFlights((list) => list.filter((x) => x.id !== id)); notify("Flight deleted"); } });
-    },
-    [isAdmin, notify],
-  );
-
-  const addMedia = useCallback((items: MediaItem[]) => {
-    setMedia((list) => [...items, ...list]);
-  }, []);
-
-  const deleteMedia = useCallback(
-    (id: string) => {
-      if (!isAdmin || !supabase) return notify("Admin access required", "error");
-      void supabase.from("media").delete().eq("id", id).then(async ({ error }) => {
-        if (error) return notify("Could not delete media", "error");
-        setMedia((list) => list.filter((x) => x.id !== id));
-        notify("Media deleted");
+      if (!isAdmin || !neon) return notify("Admin access required", "error");
+      void neon.from("flights").delete().eq("id", id).then(({ error }) => {
+        if (error) notify("Could not delete flight", "error");
+        else {
+          void refreshCatalog();
+          notify("Flight deleted");
+        }
       });
     },
-    [isAdmin, notify],
+    [isAdmin, notify, refreshCatalog],
+  );
+
+  const addMedia = useCallback(async (items: MediaItem[]) => {
+    if (!isAdmin || !neon) {
+      notify("Admin access required", "error");
+      return false;
+    }
+    if (items.some((item) => !item.storagePath)) {
+      notify("Media must be uploaded to Blob before it can be published", "error");
+      return false;
+    }
+    const rows = items.map((item) => ({
+      id: item.id,
+      file_name: item.title,
+      file_url: item.url,
+      storage_path: item.storagePath,
+      file_type: item.type === "video" ? "video" : "photo",
+      bucket: "media",
+      title: item.title,
+    }));
+    const { error } = await neon.from("media").insert(rows);
+    if (error) {
+      await Promise.all(items.flatMap((item) => item.storagePath ? [deleteBlob(item.storagePath)] : []));
+      notify("Could not publish media", "error");
+      return false;
+    }
+    void refreshCatalog();
+    notify("Media published");
+    return true;
+  }, [isAdmin, notify, refreshCatalog]);
+
+  const deleteMedia = useCallback(
+    async (id: string) => {
+      if (!isAdmin || !neon) {
+        notify("Admin access required", "error");
+        return false;
+      }
+      const { data: row, error: lookupError } = await neon.from("media").select("storage_path").eq("id", id).maybeSingle();
+      if (lookupError || !row) {
+        notify("Could not find media", "error");
+        return false;
+      }
+      const { error } = await neon.from("media").delete().eq("id", id);
+      if (error) {
+        notify("Could not delete media", "error");
+        return false;
+      }
+      await deleteBlob(row.storage_path);
+      void refreshCatalog();
+      notify("Media deleted");
+      return true;
+    },
+    [isAdmin, notify, refreshCatalog],
   );
 
   const createBooking = useCallback(
@@ -461,9 +615,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       paymentMethod: PaymentMethodId;
       traveler: TravelerDetails;
     }) => {
-      if (!user || !supabase) return null;
-      const { data: authData } = await supabase.auth.getUser();
-      if (!authData.user) return null;
+      if (!user || !authUser || !neon) return null;
       const booking: Booking = { ...input, id: crypto.randomUUID(), createdAt: Date.now(), userEmail: user.email, bookedBy: user.name, status: "pending", paymentInstructions: "", paymentStatus: "unpaid" };
       if (!Number.isInteger(input.passengers) || input.passengers < 1 || input.passengers > 20) {
         notify("Please enter between 1 and 20 travelers", "error");
@@ -476,9 +628,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify("Booking price is no longer valid. Please try again.", "error");
         return null;
       }
-      const { error } = await supabase.from("bookings").insert({
+      const { error } = await neon.from("bookings").insert({
         id: booking.id,
-        user_id: authData.user.id,
+        user_id: authUser.id,
         item_type: input.itemType,
         destination_id: input.itemType === "destination" ? input.itemId : null,
         flight_id: input.itemType === "flight" ? input.itemId : null,
@@ -512,112 +664,105 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(code === "42501" ? "Please sign in again before submitting your booking." : code === "23514" ? "Please check the number of travelers and booking dates." : error.message?.toLowerCase().includes("schema") ? "Booking service is being updated. Please try again shortly." : "Could not create booking. Please check your details and try again.", "error");
         return null;
       }
-      setBookings((list) => [booking, ...list]);
+      void refreshAccount();
       notify("Booking submitted for admin approval");
       return booking;
     },
-    [user, flights, destinations, notify],
+    [authUser, user, flights, destinations, notify, refreshAccount],
   );
 
   const approveBooking = useCallback(
-    (id: string, instructions: string) => {
-      if (!isAdmin) {
+    async (id: string, instructions: string) => {
+      if (!isAdmin || !authUser || !neon) {
         notify("You do not have permission to review bookings", "error");
         return;
       }
-      const db = supabase;
-      if (db) void db.from("bookings").select("user_id").eq("id", id).maybeSingle().then(async ({ data, error }) => {
-        if (error || !data) {
-          notify("Could not find that booking", "error");
+      const { data: bookingRow, error: lookupError } = await neon
+        .from("bookings")
+        .select("user_id")
+        .eq("id", id)
+        .maybeSingle();
+      if (lookupError || !bookingRow) {
+        notify("Could not find that booking", "error");
+        return;
+      }
+      const { error: updateError } = await neon
+        .from("bookings")
+        .update({ status: "approved", payment_instructions: instructions })
+        .eq("id", id);
+      if (updateError) {
+        notify("Could not approve booking", "error");
+        return;
+      }
+
+      let threadId = threads.find((thread) => thread.bookingId === id)?.id;
+      if (!threadId) {
+        threadId = crypto.randomUUID();
+        const { error: threadError } = await neon.from("chat_threads").insert({
+          id: threadId,
+          booking_id: id,
+          user_id: bookingRow.user_id,
+        });
+        if (threadError) {
+          notify("Booking approved, but its support thread could not be created", "error");
+          void refreshAccount();
           return;
         }
-        const result = await db.from("bookings").update({ status: "approved", payment_instructions: instructions }).eq("id", id);
-        if (result.error) {
-          notify("Could not approve booking", "error");
-          return;
-        }
-        const { data: authData } = await db.auth.getUser();
-        if (authData.user) {
-          const threadId = crypto.randomUUID();
-          await db.from("chat_threads").insert({ id: threadId, booking_id: id, user_id: data.user_id });
-          await db.from("chat_messages").insert({ id: crypto.randomUUID(), thread_id: threadId, sender_id: authData.user.id, is_admin: true, body: `Your booking #${id} has been approved.\\n\\nPayment instructions:\\n${instructions}` });
-        }
-      });
-      // The remote update above is authoritative; local state updates only after it succeeds.
-      setBookings((list) => list.map((b) => b.id === id ? { ...b, status: "approved", paymentInstructions: instructions } : b));
-      setBookings((list) => {
-        const b = list.find((x) => x.id === id);
-        if (b) {
-          setThreads((ts) =>
-            ts.some((t) => t.bookingId === id)
-              ? ts
-              : [
-                {
-                  id: rid(),
-                  bookingId: id,
-                  userEmail: b.userEmail,
-                  userName: b.bookedBy,
-                  createdAt: 0,
-                  messages: [
-                    {
-                      id: rid(),
-                      from: "admin",
-                      text: `Your booking #${id} for "${b.itemName}" has been approved. Total due: ${money(b.total)} via ${getPaymentMethod(b.paymentMethod).name}.
+      }
 
-Payment instructions:
-${instructions}
-
-Reply here once payment is sent and we will confirm your reservation.`,
-                      at: Date.now(),
-                    },
-                  ],
-                },
-                ...ts,
-              ],
-          );
-        }
-        return list;
+      const messageText = `Your booking #${id} has been approved.\\n\\nPayment instructions:\\n${instructions}`;
+      const { error: messageError } = await neon.from("chat_messages").insert({
+        id: crypto.randomUUID(),
+        thread_id: threadId,
+        sender_id: authUser.id,
+        is_admin: true,
+        body: messageText,
       });
+      void refreshAccount();
+      if (messageError) {
+        notify("Booking approved, but the support message could not be sent", "error");
+        return;
+      }
       notify(`Booking #${id} approved — payment details sent to traveler`);
     },
-    [isAdmin, notify],
+    [authUser, bookings, isAdmin, notify, refreshAccount, threads],
   );
 
   const updateBookingPayment = useCallback(async (id: string, input: { instructions: string; amount: number; reference: string; status: "unpaid" | "pending" | "paid" | "failed" }) => {
-    if (!isAdmin || !supabase) return false;
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) return false;
-    const { error } = await supabase.from("bookings").update({ payment_instructions: input.instructions, payment_amount: input.amount, payment_reference: input.reference, payment_status: input.status, payment_updated_at: new Date().toISOString(), payment_updated_by: authData.user.id }).eq("id", id);
+    if (!isAdmin || !authUser || !neon) return false;
+    const { error } = await neon.from("bookings").update({
+      payment_instructions: input.instructions,
+      payment_amount: input.amount,
+      payment_reference: input.reference,
+      payment_status: input.status,
+      payment_updated_at: new Date().toISOString(),
+      payment_updated_by: authUser.id,
+    }).eq("id", id);
     if (error) { notify("Could not save payment details", "error"); return false; }
-    setBookings((list) => list.map((b) => b.id === id ? { ...b, paymentInstructions: input.instructions, paymentAmount: input.amount, paymentReference: input.reference, paymentStatus: input.status, paymentUpdatedAt: Date.now() } : b));
+    void refreshAccount();
     notify("Payment details saved and sent to traveler");
     return true;
-  }, [isAdmin, notify]);
+  }, [authUser, isAdmin, notify, refreshAccount]);
 
   const rejectBooking = useCallback(
-    (id: string, note?: string) => {
-      if (!isAdmin) {
+    async (id: string, note?: string) => {
+      if (!isAdmin || !neon) {
         notify("You do not have permission to review bookings", "error");
         return;
       }
-      const db = supabase;
-      if (db) void db.from("bookings").update({ status: "rejected", payment_instructions: note || "Booking rejected by admin" }).eq("id", id).then(({ error }) => {
-        if (error) notify("Could not reject booking", "error");
-      });
-      setBookings((list) =>
-        list.map((b) =>
-          b.id === id
-            ? {
-              ...b,
-              status: "rejected",
-              paymentInstructions: note || "Booking rejected by admin",
-            }
-            : b,
-        ),
-      );
+      const paymentInstructions = note || "Booking rejected by admin";
+      const { error } = await neon.from("bookings").update({
+        status: "rejected",
+        payment_instructions: paymentInstructions,
+      }).eq("id", id);
+      if (error) {
+        notify("Could not reject booking", "error");
+        return;
+      }
+      void refreshAccount();
       notify(`Booking #${id} rejected`);
     },
-    [isAdmin, notify],
+    [isAdmin, notify, refreshAccount],
   );
 
   const myBookings = useMemo(
@@ -627,44 +772,54 @@ Reply here once payment is sent and we will confirm your reservation.`,
 
   const sendMessage = useCallback(
     (threadId: string, from: ChatFrom, text: string, imageDataUrl?: string) => {
+      if (!authUser || !neon) return;
       const imageId = imageDataUrl ? rid() : undefined;
-      if (imageDataUrl && imageId) {
-        setChatMedia((m) => ({ ...m, [imageId]: imageDataUrl }));
-      }
+      if (imageDataUrl && imageId) setChatMedia((current) => ({ ...current, [imageId]: imageDataUrl }));
       const messageId = crypto.randomUUID();
       const sentAt = Date.now();
-      setThreads((list) =>
-        list.map((t) =>
-          t.id === threadId
-            ? {
-              ...t,
-              messages: [...t.messages, { id: messageId, from, text, ...(imageId ? { imageId } : {}), at: sentAt }],
-            }
-            : t,
-        ),
-      );
-      const db = supabase;
-      if (db) {
-        void db.auth.getUser().then(({ data }) => {
-          if (!data.user) return;
-          void db.from("chat_messages").insert({ id: messageId, thread_id: threadId, sender_id: data.user.id, is_admin: from === "admin", body: text });
-        });
-      }
+      void neon.from("chat_messages").insert({
+        id: messageId,
+        thread_id: threadId,
+        sender_id: authUser.id,
+        is_admin: from === "admin",
+        body: text,
+      }).then(({ error }) => {
+        if (error) notify("Could not send message", "error");
+        else void refreshAccount();
+      });
     },
-    [],
+    [authUser, notify, refreshAccount],
   );
 
   const uploadReceipt = useCallback(async (bookingId: string, file: File) => {
-    if (!supabase || !user || !file.type.startsWith("image/") || file.size > 10 * 1024 * 1024) { notify("Choose an image smaller than 10 MB", "error"); return false; }
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) return false;
-    const path = `${authData.user.id}/${bookingId}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-    const upload = await supabase.storage.from("booking-receipts").upload(path, file, { contentType: file.type, upsert: false });
-    if (upload.error) { notify("Could not upload receipt", "error"); return false; }
-    const { error } = await supabase.from("booking_receipts").insert({ booking_id: bookingId, uploader_id: authData.user.id, storage_path: path, file_name: file.name, mime_type: file.type, file_size: file.size });
-    if (error) { await supabase.storage.from("booking-receipts").remove([path]); notify("Could not save receipt", "error"); return false; }
-    notify("Receipt uploaded"); return true;
-  }, [notify, user]);
+    if (!neon || !user || !authUser || !file.type.startsWith("image/") || file.size > 10 * 1024 * 1024) {
+      notify("Choose an image smaller than 10 MB", "error");
+      return false;
+    }
+    let uploaded: Awaited<ReturnType<typeof uploadBlob>> | null = null;
+    try {
+      uploaded = await uploadBlob(file, "receipt", bookingId);
+      const { error } = await neon.from("booking_receipts").insert({
+        booking_id: bookingId,
+        uploader_id: authUser.id,
+        storage_path: uploaded.pathname,
+        file_name: file.name,
+        mime_type: file.type,
+        file_size: file.size,
+      });
+      if (error) {
+        await deleteBlob(uploaded.pathname);
+        notify("Could not save receipt", "error");
+        return false;
+      }
+      notify("Receipt uploaded");
+      return true;
+    } catch {
+      if (uploaded) await deleteBlob(uploaded.pathname);
+      notify("Could not upload receipt", "error");
+      return false;
+    }
+  }, [authUser, notify, user]);
 
   const createTripRequest = useCallback(
     (input: {
@@ -676,7 +831,7 @@ Reply here once payment is sent and we will confirm your reservation.`,
       budget: string;
       notes: string;
     }) => {
-      if (!user) return null;
+      if (!user || !authUser || !neon) return null;
       const req: TripRequest = {
         ...input,
         id: requestId(),
@@ -687,59 +842,71 @@ Reply here once payment is sent and we will confirm your reservation.`,
         quote: 0,
         adminNote: "",
       };
-      const db = supabase;
-      if (db) {
-        void db.auth.getUser().then(({ data }) => {
-          if (!data.user) return;
-          return db.from("trip_requests").insert({
-            id: req.id,
-            user_id: data.user.id,
-            destination: req.destination,
-            from_city: req.fromCity,
-            travelers: req.travelers,
-            start_date: req.checkIn,
-            end_date: req.checkOut,
-            budget: req.budget,
-            notes: req.notes,
-          });
-        }).then((result) => {
-          if (result?.error) notify("Could not save trip request", "error");
-        });
-      }
-      setRequests((list) => [req, ...list]);
+      void neon.from("trip_requests").insert({
+        id: req.id,
+        user_id: authUser.id,
+        destination: req.destination,
+        from_city: req.fromCity,
+        travelers: req.travelers,
+        start_date: req.checkIn,
+        end_date: req.checkOut,
+        budget: req.budget,
+        notes: req.notes,
+      }).then(({ error }) => {
+        if (error) {
+          setRequests((list) => list.filter((item) => item.id !== req.id));
+          notify("Could not save trip request", "error");
+        } else {
+          void refreshAccount();
+        }
+      });
       return req;
     },
-    [notify, user],
+    [authUser, notify, refreshAccount, user],
   );
 
   const quoteTripRequest = useCallback(
-    (id: string, quote: number, note: string) => {
-      setRequests((list) =>
-        list.map((r) =>
-          r.id === id ? { ...r, status: "approved", quote, adminNote: note } : r,
-        ),
-      );
+    async (id: string, quote: number, note: string) => {
+      if (!isAdmin || !neon) {
+        notify("Admin access required", "error");
+        return;
+      }
+      const { error } = await neon.from("trip_requests").update({
+        status: "approved",
+        quote,
+        admin_note: note,
+        updated_at: new Date().toISOString(),
+      }).eq("id", id);
+      if (error) {
+        notify("Could not save quote", "error");
+        return;
+      }
+      void refreshAccount();
       notify(`Request #${id} approved — quote sent to traveler`);
     },
-    [notify],
+    [isAdmin, notify, refreshAccount],
   );
 
   const declineTripRequest = useCallback(
-    (id: string, note?: string) => {
-      setRequests((list) =>
-        list.map((r) =>
-          r.id === id
-            ? {
-              ...r,
-              status: "rejected",
-              adminNote: note || "Not available for the selected dates.",
-            }
-            : r,
-        ),
-      );
+    async (id: string, note?: string) => {
+      if (!isAdmin || !neon) {
+        notify("Admin access required", "error");
+        return;
+      }
+      const adminNote = note || "Not available for the selected dates.";
+      const { error } = await neon.from("trip_requests").update({
+        status: "rejected",
+        admin_note: adminNote,
+        updated_at: new Date().toISOString(),
+      }).eq("id", id);
+      if (error) {
+        notify("Could not decline trip request", "error");
+        return;
+      }
+      void refreshAccount();
       notify(`Request #${id} declined`);
     },
-    [notify],
+    [isAdmin, notify, refreshAccount],
   );
 
   const myTripRequests = useMemo(
@@ -748,16 +915,11 @@ Reply here once payment is sent and we will confirm your reservation.`,
   );
 
   const resetAll = useCallback(() => {
-    setDestinations(SEED_DESTINATIONS);
-    setFlights(SEED_FLIGHTS);
-    setMedia(SEED_MEDIA);
-    setBookings([]);
-    setThreads([]);
-    setRequests([]);
     setChatMedia({});
-    setUsers([]);
-    notify("Demo data reset");
-  }, [notify]);
+    void refreshCatalog();
+    if (authUser) void refreshAccount();
+    notify("Live database data refreshed");
+  }, [authUser, notify, refreshAccount, refreshCatalog]);
 
   const value: Store = {
     user,

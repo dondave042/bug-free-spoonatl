@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { ChevronLeft, User } from "lucide-react";
 import { Header } from "../components/Header";
@@ -10,6 +10,12 @@ export function Profile() {
   const { user, updateProfile } = useStore();
   const [name, setName] = useState(user?.name ?? "");
   const [phone, setPhone] = useState(user?.phone ?? "");
+
+  useEffect(() => {
+    if (!user) return;
+    setName(user.name);
+    setPhone(user.phone);
+  }, [user?.email, user?.name, user?.phone]);
 
   if (!user) return <Navigate to="/login" replace />;
 

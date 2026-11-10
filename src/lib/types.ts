@@ -71,6 +71,7 @@ export interface MediaItem {
   type: MediaType;
   title: string;
   source: string;
+  storagePath?: string;
 }
 
 export interface TravelerDetails {
