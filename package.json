@@ -10,14 +10,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@neon/neon-js": "^0.10.2",
     "@supabase/supabase-js": "^2.57.4",
     "@tailwindcss/vite": "^4.2.1",
     "@vercel/analytics": "^2.0.1",
+    "@vercel/blob": "^2.9.0",
     "framer-motion": "^12.35.0",
     "lucide-react": "^0.577.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.18.4",
+    "swr": "^2.5.1",
     "tailwindcss": "^4.2.1"
   },
   "devDependencies": {
