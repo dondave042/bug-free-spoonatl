@@ -4,7 +4,7 @@ import { Link, Navigate } from "react-router-dom";
 import { CheckCircle2, Clock3, ImagePlus, LogOut, MessageCircle, Plane, Save, Trash2, Upload } from "lucide-react";
 import { useStore } from "../lib/store";
 import { getPaymentMethod } from "../lib/data";
-import { supabase } from "../lib/supabase";
+import { deleteBlob, uploadBlob } from "../lib/uploads";
 import type { Destination, Flight, MediaItem } from "../lib/types";
 import { money } from "../lib/utils";
 
@@ -12,7 +12,7 @@ const emptyPackage: Destination = { id: 0, name: "", location: "", description: 
 const emptyFlight: Flight = { id: 0, airline: "", departure_city: "", arrival_city: "", departure_date: "", arrival_date: "", price: 0, available_seats: 0, duration: "", stops: "Non-stop" };
 
 export function NewAdminDashboard() {
-  const { user, isAdmin, bookings, destinations, flights, media, saveDestination, deleteDestination, saveFlight, deleteFlight, deleteMedia, approveBooking, rejectBooking, updateBookingPayment, signOut, notify } = useStore();
+  const { user, isAdmin, bookings, destinations, flights, media, saveDestination, deleteDestination, saveFlight, deleteFlight, addMedia, deleteMedia, approveBooking, rejectBooking, updateBookingPayment, signOut, notify } = useStore();
   const [tab, setTab] = useState<"bookings" | "packages" | "flights" | "media">("bookings");
   const [selected, setSelected] = useState<string | null>(null);
   const [pkg, setPkg] = useState(emptyPackage);
@@ -27,7 +27,7 @@ export function NewAdminDashboard() {
   const selectBooking = (id: string) => { const b = bookings.find((x) => x.id === id); setSelected(id); setPayment({ instructions: b?.paymentInstructions ?? "", amount: b?.paymentAmount?.toString() ?? "", reference: b?.paymentReference ?? "", status: b?.paymentStatus ?? "pending" }); };
   const savePayment = async () => { if (!current) return; const amount = Number(payment.amount); if (!Number.isFinite(amount) || amount < 0) return notify("Enter a valid payment amount", "error"); await updateBookingPayment(current.id, { ...payment, amount }); };
   const uploadMedia = async (files: FileList | null) => {
-    if (!files || !supabase) return;
+    if (!files) return;
     const selectedFiles = Array.from(files);
     if (selectedFiles.length < 1 || selectedFiles.length > maxMedia) return notify("Select between 1 and 5 files", "error");
     const adminMediaCount = media.filter((item) => item.source !== "seed").length;
@@ -35,24 +35,52 @@ export function NewAdminDashboard() {
     for (const file of selectedFiles) {
       if (!(file.type.startsWith("image/") || file.type.startsWith("video/")) || file.size > 50 * 1024 * 1024) { notify("Use images or videos under 50 MB", "error"); return; }
     }
-    for (const file of selectedFiles) {
-      const id = crypto.randomUUID(); const path = `${id}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-      const upload = await supabase.storage.from("media").upload(path, file, { contentType: file.type });
-      if (upload.error) { notify("Media upload failed", "error"); return; }
-      const { data } = supabase.storage.from("media").getPublicUrl(path);
-      const row = { id, file_url: data.publicUrl, file_type: file.type.startsWith("video/") ? "video" : "photo", file_name: file.name, bucket: "media", title: file.name };
-      const result = await supabase.from("media").insert(row);
-      if (result.error) { await supabase.storage.from("media").remove([path]); notify("Could not publish media", "error"); return; }
+    const assets: MediaItem[] = [];
+    try {
+      for (const file of selectedFiles) {
+        const uploaded = await uploadBlob(file, "gallery");
+        assets.push({
+          id: crypto.randomUUID(),
+          url: uploaded.url ?? "",
+          type: file.type.startsWith("video/") ? "video" : "photo",
+          title: file.name,
+          source: "media",
+          storagePath: uploaded.pathname,
+        });
+      }
+      await addMedia(assets);
+    } catch {
+      await Promise.all(assets.flatMap((asset) => asset.storagePath ? [deleteBlob(asset.storagePath)] : []));
+      notify("Media upload failed", "error");
     }
-    notify(`${selectedFiles.length} media item${selectedFiles.length === 1 ? "" : "s"} published`);
-    window.location.reload();
   };
   const uploadPackageMedia = async () => {
-    if (!supabase || packageFiles.length < 1 || packageFiles.length > 5) return notify("Select between 1 and 5 images or videos", "error");
+    if (packageFiles.length < 1 || packageFiles.length > 5) return notify("Select between 1 and 5 images or videos", "error");
     for (const file of packageFiles) if (!(file.type.startsWith("image/") || file.type.startsWith("video/")) || file.size > 50 * 1024 * 1024) return notify("Use images or videos under 50 MB", "error");
     const assets: MediaItem[] = [];
-    for (const file of packageFiles) { const id = crypto.randomUUID(); const path = `packages/${pkg.id || Date.now()}/${id}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`; const upload = await supabase.storage.from("media").upload(path, file, { contentType: file.type }); if (upload.error) return notify("Package media upload failed", "error"); const { data } = supabase.storage.from("media").getPublicUrl(path); assets.push({ id, url: data.publicUrl, type: file.type.startsWith("video/") ? "video" : "photo", title: file.name, source: "media" }); }
-    saveDestination({ ...pkg, id: pkg.id || Date.now(), image: assets[0]?.url || pkg.image, media: assets }); setPackageFiles([]); setPkg(emptyPackage); notify("Luxury package published with media");
+    try {
+      for (const file of packageFiles) {
+        const uploaded = await uploadBlob(file, "package");
+        assets.push({
+          id: crypto.randomUUID(),
+          url: uploaded.url ?? "",
+          type: file.type.startsWith("video/") ? "video" : "photo",
+          title: file.name,
+          source: "packages",
+          storagePath: uploaded.pathname,
+        });
+      }
+      const saved = await saveDestination({ ...pkg, id: pkg.id || Date.now(), image: assets[0]?.url || pkg.image, media: assets });
+      if (!saved) {
+        await Promise.all(assets.flatMap((asset) => asset.storagePath ? [deleteBlob(asset.storagePath)] : []));
+        return;
+      }
+      setPackageFiles([]);
+      setPkg(emptyPackage);
+    } catch {
+      await Promise.all(assets.flatMap((asset) => asset.storagePath ? [deleteBlob(asset.storagePath)] : []));
+      notify("Package media upload failed", "error");
+    }
   };
   const nav = (next: typeof tab) => setTab(next);
   const saveFlightPost = async () => {

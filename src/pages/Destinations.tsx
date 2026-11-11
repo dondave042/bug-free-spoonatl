@@ -9,7 +9,7 @@ import type { Destination } from "../lib/types";
 import { money } from "../lib/utils";
 
 export function Destinations() {
-  const { destinations, user, notify } = useStore();
+  const { destinations, catalogLoading, user, notify } = useStore();
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const [pick, setPick] = useState<Destination | null>(null);
@@ -62,7 +62,7 @@ export function Destinations() {
             <Plane className="mx-auto mb-4 h-14 w-14 text-slate-200" />
             <p className="font-bold text-slate-500">
               {destinations.length === 0
-                ? "Loading destinations..."
+                ? catalogLoading ? "Loading destinations…" : "No destinations have been published yet."
                 : "No destinations match your search."}
             </p>
           </div>

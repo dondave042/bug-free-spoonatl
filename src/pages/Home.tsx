@@ -19,16 +19,15 @@ import { SectionTitle } from "../components/ui";
 import { SOCIALS } from "../components/socials";
 import { useStore } from "../lib/store";
 import {
-    CONTACT_EMAIL,
-    CONTACT_OFFICE,
-    EXCURSIONS,
+  CONTACT_EMAIL,
+  CONTACT_OFFICE,
   TESTIMONIALS,
 } from "../lib/data";
 import type { BookableItem, Flight, ItemType } from "../lib/types";
 import { formatDate, formatTime, money } from "../lib/utils";
 
 export function Home() {
-  const { destinations, flights, user, notify } = useStore();
+  const { destinations, flights, catalogLoading, user, notify } = useStore();
   const nav = useNavigate();
   const [item, setItem] = useState<BookableItem | null>(null);
   const [itemType, setItemType] = useState<ItemType>("destination");
@@ -91,49 +90,6 @@ export function Home() {
         </div>
       </section>
 
-      <section
-        id="destinations"
-        className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8"
-      >
-        <SectionTitle
-          title="Top Rated Destinations"
-          sub="Curated excursions with instant confirmation"
-        />
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {EXCURSIONS.map((ex) => (
-            <article
-              key={ex.title}
-              className="card-hover group overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-lg shadow-slate-200/40"
-            >
-              <div className="relative h-52 overflow-hidden">
-                <img
-                  src={ex.image}
-                  alt={ex.title}
-                  className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-                />
-                <span className="absolute top-4 left-4 rounded-full bg-white/90 px-3 py-1 text-[11px] font-bold text-primary backdrop-blur">
-                  {ex.location}
-                </span>
-              </div>
-              <div className="p-5">
-                <h3 className="font-display text-xl font-bold text-primary">
-                  {ex.title}
-                </h3>
-                <div className="mt-3 flex items-center justify-between">
-                  <p className="text-sm font-bold text-accent">
-                    From {money(ex.price)}
-                  </p>
-                  <span className="flex items-center gap-1 text-xs font-bold text-slate-500">
-                    <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
-                    {ex.rating} ({ex.reviews})
-                  </span>
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
       <section className="mx-auto max-w-7xl px-4 pb-8 sm:px-6 lg:px-8">
         <div className="mb-10 flex items-end justify-between gap-4">
           <div>
@@ -152,7 +108,11 @@ export function Home() {
           </Link>
         </div>
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {destinations.slice(0, 6).map((d) => (
+          {catalogLoading ? (
+            <p className="col-span-full py-12 text-center text-sm font-semibold text-slate-400">Loading packages…</p>
+          ) : destinations.length === 0 ? (
+            <p className="col-span-full py-12 text-center text-sm font-semibold text-slate-400">No packages have been published yet.</p>
+          ) : destinations.slice(0, 6).map((d) => (
             <article
               key={d.id}
               className="card-hover overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-lg shadow-slate-200/40"
@@ -212,7 +172,11 @@ export function Home() {
           sub="Best flight deals for your next adventure"
         />
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {flights.slice(0, 4).map((f) => (
+          {catalogLoading ? (
+            <p className="col-span-full py-12 text-center text-sm font-semibold text-slate-400">Loading flights…</p>
+          ) : flights.length === 0 ? (
+            <p className="col-span-full py-12 text-center text-sm font-semibold text-slate-400">No flight deals have been published yet.</p>
+          ) : flights.slice(0, 4).map((f) => (
             <FlightCard
               key={f.id}
               f={f}

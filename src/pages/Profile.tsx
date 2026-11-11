@@ -7,10 +7,13 @@ import { useStore } from "../lib/store";
 import { FIELD } from "../lib/utils";
 
 export function Profile() {
-  const { user, updateProfile } = useStore();
-  const [name, setName] = useState(user?.name ?? "");
-  const [phone, setPhone] = useState(user?.phone ?? "");
+  const { user, authCheckComplete, updateProfile } = useStore();
+  const [draft, setDraft] = useState<{ email: string; name: string; phone: string } | null>(null);
+  const form = user && draft?.email === user.email
+    ? draft
+    : { email: user?.email ?? "", name: user?.name ?? "", phone: user?.phone ?? "" };
 
+  if (!authCheckComplete) return <div className="grid min-h-screen place-items-center text-sm text-slate-500" role="status">Checking your session…</div>;
   if (!user) return <Navigate to="/login" replace />;
 
   return (
@@ -40,7 +43,7 @@ export function Profile() {
             className="space-y-5"
             onSubmit={(e) => {
               e.preventDefault();
-              updateProfile(name.trim() || user.name, phone.trim());
+              void updateProfile(form.name.trim() || user.name, form.phone.trim());
             }}
           >
             <label className="block">
@@ -48,8 +51,8 @@ export function Profile() {
                 Full Name
               </span>
               <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={form.name}
+                onChange={(e) => setDraft({ ...form, email: user.email, name: e.target.value })}
                 className={FIELD}
               />
             </label>
@@ -58,8 +61,8 @@ export function Profile() {
                 Phone
               </span>
               <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                value={form.phone}
+                onChange={(e) => setDraft({ ...form, email: user.email, phone: e.target.value })}
                 className={FIELD}
                 placeholder="+1 …"
               />

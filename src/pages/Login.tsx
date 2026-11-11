@@ -39,7 +39,7 @@ export function Login() {
         setError(err);
         return;
       }
-      setInfo("Account created. Check your email to confirm your account, then sign in.");
+      setInfo("Account created. You can now sign in with your email and password.");
       setMode("in");
     }
   };
@@ -86,6 +86,7 @@ export function Login() {
                 <input
                   type="email"
                   required
+                  autoComplete="email"
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   placeholder="you@example.com"
@@ -102,6 +103,8 @@ export function Login() {
                 <input
                   type="password"
                   required
+                  minLength={mode === "up" ? 8 : undefined}
+                  autoComplete={mode === "up" ? "new-password" : "current-password"}
                   value={form.password}
                   onChange={(e) =>
                     setForm({ ...form, password: e.target.value })
