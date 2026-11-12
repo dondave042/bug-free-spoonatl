@@ -34,14 +34,19 @@ export function AdminLoginModal({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    const err = await signIn(email, password);
-    setBusy(false);
-    if (err) {
-      setError(err);
-      return;
+    try {
+      const err = await signIn(email, password);
+      if (err) {
+        setError(err);
+        return;
+      }
+      setError("");
+      setCheckingAccess(true);
+    } catch {
+      setError("Sign-in failed. Please check your credentials and try again.");
+    } finally {
+      setBusy(false);
     }
-    setError("");
-    setCheckingAccess(true);
   };
 
   return (
