@@ -16,7 +16,10 @@ function getDataApiUrl(value: string) {
 export const neon = authUrl
   ? createClient({
       auth: {
-        url: authUrl,
+        url:
+          import.meta.env.DEV && typeof window !== "undefined"
+            ? new URL("/api/neon-auth", window.location.origin).toString()
+            : authUrl,
         allowAnonymous: true,
         adapter: BetterAuthReactAdapter(),
       },
