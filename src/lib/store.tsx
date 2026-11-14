@@ -292,6 +292,8 @@ interface Store {
   users: User[];
   signIn: (email: string, password: string) => Promise<string | null>;
   signUp: (name: string, email: string, password: string) => Promise<string | null>;
+  requestPasswordReset: (email: string) => Promise<string | null>;
+  resetPassword: (token: string, newPassword: string) => Promise<string | null>;
   signOut: () => void;
   updateProfile: (name: string, phone: string) => Promise<boolean>;
   destinations: Destination[];
@@ -444,6 +446,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await refreshAuth();
     return null;
   }, [refreshAuth]);
+
+  const requestPasswordReset = useCallback(async (email: string) => {
+    if (!neon) return "Neon Auth is not configured";
+    try {
+      const { error } = await neon.auth.requestPasswordReset({
+        email: email.trim().toLowerCase(),
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      return error ? "Could not send a reset link. Please try again." : null;
+    } catch {
+      return "Could not send a reset link. Please try again.";
+    }
+  }, []);
+
+  const resetPassword = useCallback(async (token: string, newPassword: string) => {
+    if (!neon) return "Neon Auth is not configured";
+    try {
+      const { error } = await neon.auth.resetPassword({ token, newPassword });
+      if (error) return "This reset link is invalid or expired. Request a new one.";
+      return null;
+    } catch {
+      return "Could not reset the password. Request a new link and try again.";
+    }
+  }, []);
 
   const signOut = useCallback(() => {
     void (async () => {
@@ -941,6 +967,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     users,
     signIn,
     signUp,
+    requestPasswordReset,
+    resetPassword,
     signOut,
     updateProfile,
     destinations,

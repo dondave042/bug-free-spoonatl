@@ -9,6 +9,7 @@ import { Destinations } from "./pages/Destinations";
 import { Bookings } from "./pages/Bookings";
 import { Gallery } from "./pages/Gallery";
 import { Login } from "./pages/Login";
+import { ResetPassword } from "./pages/ResetPassword";
 import { Profile } from "./pages/Profile";
 import { Chat } from "./pages/Chat";
 import { NewUserDashboard } from "./pages/NewUserDashboard";
@@ -53,6 +54,7 @@ function AppContent() {
           <Route path="/bookings" element={<Bookings />} />
           <Route path="/gallery" element={<Gallery />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route
             path="/profile"
             element={

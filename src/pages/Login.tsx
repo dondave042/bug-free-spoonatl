@@ -7,16 +7,17 @@ import { useStore } from "../lib/store";
 import { FIELD_LG } from "../lib/utils";
 
 export function Login() {
-  const { signIn, signUp, isAdmin, adminCheckComplete, notify } = useStore();
+  const { signIn, signUp, requestPasswordReset, isAdmin, adminCheckComplete, notify } = useStore();
   const nav = useNavigate();
   const [pendingRedirect, setPendingRedirect] = useState(false);
+  const [resetPending, setResetPending] = useState(false);
 
   useEffect(() => {
     if (!pendingRedirect || !adminCheckComplete) return;
     queueMicrotask(() => setPendingRedirect(false));
     nav(isAdmin ? "/admin/dashboard" : "/user/dashboard", { replace: true });
   }, [adminCheckComplete, isAdmin, nav, pendingRedirect]);
-  const [mode, setMode] = useState<"in" | "up">("in");
+  const [mode, setMode] = useState<"in" | "up" | "forgot">("in");
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -25,6 +26,18 @@ export function Login() {
     e.preventDefault();
     setError("");
     setInfo("");
+    if (mode === "forgot") {
+      setResetPending(true);
+      const err = await requestPasswordReset(form.email);
+      setResetPending(false);
+      if (err) {
+        setError(err);
+        return;
+      }
+      setInfo("If an account exists for this email, a password reset link is on its way.");
+      return;
+    }
+
     if (mode === "in") {
       const err = await signIn(form.email, form.password);
       if (err) {
@@ -56,10 +69,10 @@ export function Login() {
               className="mx-auto mb-4 h-16 w-16 rounded-2xl object-cover shadow-md"
             />
             <h1 className="font-display text-3xl font-bold text-primary">
-              {mode === "in" ? "Welcome back" : "Create Account"}
+              {mode === "in" ? "Welcome back" : mode === "up" ? "Create Account" : "Reset your password"}
             </h1>
             <p className="mt-1 text-sm font-medium text-slate-500">
-              {mode === "in" ? "Sign in to ATL Travels" : "Join ATL Travels today"}
+              {mode === "in" ? "Sign in to ATL Travels" : mode === "up" ? "Join ATL Travels today" : "We’ll email you a secure reset link"}
             </p>
           </div>
           <form onSubmit={submit} className="space-y-4">
@@ -94,46 +107,75 @@ export function Login() {
                 />
               </div>
             </label>
-            <label className="block">
-              <span className="mb-2 block text-sm font-bold text-primary">
-                Password
-              </span>
-              <div className="relative">
-                <Lock className="absolute top-3.5 left-4 h-5 w-5 text-slate-400" />
-                <input
-                  type="password"
-                  required
-                  minLength={mode === "up" ? 8 : undefined}
-                  autoComplete={mode === "up" ? "new-password" : "current-password"}
-                  value={form.password}
-                  onChange={(e) =>
-                    setForm({ ...form, password: e.target.value })
-                  }
-                  placeholder="••••••••"
-                  className="w-full rounded-2xl border border-slate-200 py-3.5 pr-4 pl-12 text-sm font-bold text-slate-900 outline-none focus:border-accent focus:ring-2 focus:ring-orange-100"
-                />
+            {mode !== "forgot" && (
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-primary">
+                  Password
+                </span>
+                <div className="relative">
+                  <Lock className="absolute top-3.5 left-4 h-5 w-5 text-slate-400" />
+                  <input
+                    type="password"
+                    required
+                    minLength={mode === "up" ? 8 : undefined}
+                    autoComplete={mode === "up" ? "new-password" : "current-password"}
+                    value={form.password}
+                    onChange={(e) =>
+                      setForm({ ...form, password: e.target.value })
+                    }
+                    placeholder="••••••••"
+                    className="w-full rounded-2xl border border-slate-200 py-3.5 pr-4 pl-12 text-sm font-bold text-slate-900 outline-none focus:border-accent focus:ring-2 focus:ring-orange-100"
+                  />
+                </div>
+              </label>
+            )}
+            {mode === "in" && (
+              <div className="text-right">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("forgot");
+                    setError("");
+                    setInfo("");
+                  }}
+                  className="cursor-pointer text-sm font-bold text-accent hover:text-accent-hover"
+                >
+                  Forgot password?
+                </button>
               </div>
-            </label>
+            )}
             {error && (
-              <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-600">
+              <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-600">
                 {error}
               </p>
             )}
             {info && (
-              <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">
+              <p role="status" className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">
                 {info}
               </p>
             )}
             <button
               type="submit"
-              disabled={pendingRedirect}
+              disabled={pendingRedirect || resetPending}
               className="w-full cursor-pointer rounded-full bg-accent py-3.5 text-sm font-bold text-white shadow-lg shadow-orange-500/20 transition hover:bg-accent-hover disabled:cursor-wait disabled:opacity-70"
             >
-              {pendingRedirect ? "Checking access..." : mode === "in" ? "Sign in" : "Create account"}
+              {pendingRedirect
+                ? "Checking access..."
+                : resetPending
+                  ? "Sending reset link..."
+                  : mode === "in"
+                    ? "Sign in"
+                    : mode === "up"
+                      ? "Create account"
+                      : "Send reset link"}
             </button>
           </form>
           <p className="mt-5 text-center text-sm font-medium text-slate-500">
-            {mode === "in" ? "Don't have an account? " : "Already have an account? "}
+            {mode === "in"
+              ? "Don't have an account? "
+              : mode === "up"
+                ? "Already have an account? "
+                : "Remember your password? "}
             <button
               type="button"
               onClick={() => {
