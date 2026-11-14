@@ -423,28 +423,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async (email: string, password: string) => {
     if (!neon) return "Neon Auth is not configured";
-    const result = await neon.auth.signIn.email({ email: email.trim().toLowerCase(), password });
-    if (result.error) return "Invalid email or password";
-    await refreshAuth();
-    return null;
+    try {
+      const result = await neon.auth.signIn.email({ email: email.trim().toLowerCase(), password });
+      if (result.error) return "Invalid email or password";
+      await refreshAuth();
+      return null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      if (message.includes("invalid email") || message.includes("invalid password") || message.includes("unauthorized")) {
+        return "Invalid email or password";
+      }
+      return "Could not sign in right now. Please try again.";
+    }
   }, [refreshAuth]);
 
   const signUp = useCallback(async (name: string, email: string, password: string) => {
     if (password.length < 8) return "Password must be at least 8 characters.";
     if (!neon) return "Neon Auth is not configured";
-    const result = await neon.auth.signUp.email({
-      email: email.trim().toLowerCase(),
-      password,
-      name: name.trim(),
-    });
-    if (result.error) {
-      const message = result.error.message?.toLowerCase() ?? "";
-      if (message.includes("already") || message.includes("registered")) return "This email is already registered. Please sign in instead.";
-      return result.error.message ?? "Could not create account.";
+    try {
+      const result = await neon.auth.signUp.email({
+        email: email.trim().toLowerCase(),
+        password,
+        name: name.trim(),
+      });
+      if (result.error) {
+        const message = result.error.message?.toLowerCase() ?? "";
+        if (message.includes("already") || message.includes("registered")) return "This email is already registered. Please sign in instead.";
+        return result.error.message ?? "Could not create account.";
+      }
+      await neon.auth.signOut();
+      await refreshAuth();
+      return null;
+    } catch {
+      return "Could not create account right now. Please try again.";
     }
-    await neon.auth.signOut();
-    await refreshAuth();
-    return null;
   }, [refreshAuth]);
 
   const requestPasswordReset = useCallback(async (email: string) => {
